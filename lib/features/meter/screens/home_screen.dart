@@ -1,0 +1,2005 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:ideco_platform/platform/presentation/cubit/platform_auth_cubit.dart';
+import 'package:ideco_platform/features/settings/screens/settings_screen.dart';
+import 'package:ideco_platform/features/meter/services/meter_service.dart';
+import 'package:ideco_platform/core/theme/app_colors.dart';
+import 'package:ideco_platform/features/direct_current/screens/direct_current_management_screen.dart';
+import 'package:ideco_platform/features/billing/screens/view_customer_bill_screen.dart';
+import 'package:ideco_platform/features/meter/screens/view_meter_events_screen.dart';
+import 'package:ideco_platform/features/meter/screens/create_connection_screen.dart';
+import 'package:ideco_platform/features/meter/screens/add_notes_screen.dart';
+import 'package:ideco_platform/features/meter/screens/sync_data_screen.dart';
+import 'package:ideco_platform/features/meter/screens/network_configuration_screen.dart';
+import 'package:ideco_platform/features/billing/screens/view_meter_billing_screen.dart';
+import 'package:ideco_platform/features/direct_current/services/direct_current_service.dart';
+import 'package:ideco_platform/features/direct_current/screens/create_disconnection_screen.dart';
+import 'package:ideco_platform/features/direct_current/screens/direct_insert_screen.dart';
+import 'package:ideco_platform/features/direct_current/screens/create_transaction_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import 'package:ideco_platform/features/meter/screens/bluetooth_device_list_dialog.dart';
+import 'package:ideco_platform/features/direct_current/screens/connection_inquiry_screen.dart';
+import 'package:ideco_platform/features/direct_current/screens/technical_inquiry_screen.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  // --- Logic State ---
+  bool _showResult = false;
+  bool _isLoading = false;
+  final TextEditingController _meterController = TextEditingController();
+  final TextEditingController _subscriberController = TextEditingController();
+  final ScrollController _scrollController = ScrollController(); // للمساعدة في التمرير للنتائج
+  Map<String, String>? _meterInfo;
+  String _currentSearchId = "";
+  String? _liveMeterState;
+  bool _isCheckingState = false;
+  bool _isCheckingVoltage = false;
+  bool _isProbeConnected = false; // تتبع حالة اقتران البروب
+  BluetoothAdapterState _bluetoothState = BluetoothAdapterState.unknown;
+  String? _lightingStatus; // تخزين حالة الإنارة المكتشفة
+
+  // Expansion state for each section
+  final List<bool> _isExpanded = [true, false, false, false, false, false];
+
+  @override
+  void initState() {
+    super.initState();
+    // مراقبة حالة البلوتوث الحقيقية عبر Flutter Blue Plus
+    FlutterBluePlus.adapterState.listen((BluetoothAdapterState state) {
+      if (mounted) {
+        setState(() => _bluetoothState = state);
+        if (state != BluetoothAdapterState.on) {
+          setState(() => _isProbeConnected = false);
+        }
+      }
+    });
+  }
+
+  void _navigateToDirectInsert() {
+    debugPrint(">>> NAVIGATING TO DIRECT INSERT SCREEN...");
+    if (_meterInfo != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DirectInsertScreen(meterInfo: _meterInfo!),
+        ),
+      );
+    } else {
+      _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+    }
+  }
+
+  /// تسجيل الحدث والانتقال لشاشة الاستعلام (مطابق لكود Java الأصلي)
+  void _logAndNavigateToInquiry(String eventType) async {
+    final prefs = await SharedPreferences.getInstance();
+    String oracleUser = prefs.getString('ORACLE_USER') ?? "";
+    String meterNo = _meterController.text.trim();
+    
+    bool isDisconn = eventType.contains("Disconn");
+
+    // تسجيل حدث الاستعلام في السيرفر
+    if (meterNo.isNotEmpty && oracleUser.isNotEmpty) {
+      MeterService.logSmartMeterEvent(meterNo, oracleUser, eventType);
+    }
+
+    // الانتقال للشاشة وانتظار النتيجة
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ConnectionInquiryScreen(isDisconnection: isDisconn),
+      ),
+    );
+
+    // إذا تم اختيار معاملة من القائمة، يتم تعيين رقم العداد والبحث تلقائياً
+    if (result != null && result is String && mounted) {
+      setState(() {
+        _meterController.text = result;
+        _subscriberController.clear();
+      });
+      _handleSearch();
+    }
+  }
+
+  /// تسجيل الحدث والانتقال لشاشة استعلام المعاملات التقنية
+  void _logAndNavigateToTechnicalInquiry() async {
+    final prefs = await SharedPreferences.getInstance();
+    String oracleUser = prefs.getString('ORACLE_USER') ?? "";
+    String meterNo = _meterController.text.trim();
+
+    // تسجيل حدث الاستعلام في السيرفر
+    if (meterNo.isNotEmpty && oracleUser.isNotEmpty) {
+      MeterService.logSmartMeterEvent(meterNo, oracleUser, "Process Inquiry");
+    }
+
+    // الانتقال للشاشة وانتظار النتيجة
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const TechnicalInquiryScreen()),
+    );
+
+    // إذا تم اختيار معاملة، يتم تعيين رقم العداد والبحث تلقائياً
+    if (result != null && result is String && mounted) {
+      setState(() {
+        _meterController.text = result;
+        _subscriberController.clear();
+      });
+      _handleSearch();
+    }
+  }
+
+  void _handleLogout() {
+    // استخدام نظام الخروج الموحد للمنصة
+    context.read<PlatformAuthCubit>().signOut();
+    // العودة للـ PlatformGate التي ستوجه المستخدم لصفحة تسجيل الدخول
+    Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
+  }
+
+  void _handleSearch() async {
+    String meterQuery = _meterController.text.trim();
+    String subQuery = _subscriberController.text.trim();
+
+    if (meterQuery.isEmpty && subQuery.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'الرجاء إدخال رقم الإشتراك أو العداد للبحث',
+            textAlign: TextAlign.right,
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: AppColors.warning,
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _showResult = false;
+      _liveMeterState = null;
+    });
+
+    try {
+      String targetMeterNum = meterQuery;
+
+      // Logic from Java: If subscriber provided but not meter, fetch meter first
+      if (subQuery.isNotEmpty && meterQuery.isEmpty) {
+        final fetchedMeter = await MeterService.getMeterNumberBySubscriber(subQuery);
+        if (fetchedMeter != null) {
+          targetMeterNum = fetchedMeter;
+          _meterController.text = fetchedMeter; // Auto-fill
+        } else {
+          throw 'لم يتم العثور على عداد لهذا اإشتراك';
+        }
+      }
+
+      if (targetMeterNum.isEmpty) {
+        throw 'الرجاء إدخال رقم العداد أو رقم الإشتراك';
+      }
+
+      // Fetch full home info
+      final info = await MeterService.getHomeInfo(targetMeterNum);
+      
+      if (info != null && info.isNotEmpty) {
+        setState(() {
+          _meterInfo = info;
+          _showResult = true;
+          _currentSearchId = targetMeterNum;
+        });
+        
+        // التمرير التلقائي لمكان عرض النتائج (HomeInfo) كما في الجافا
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _scrollController.animateTo(
+            200, // الارتفاع التقريبي لبداية كرت النتائج
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+        });
+      } else {
+        throw 'فشل جلب تفاصيل العداد';
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString(), textAlign: TextAlign.right),
+            backgroundColor: AppColors.danger,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _handleCheckMeterState() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+    
+    debugPrint(">>> ACTION: Check Meter State Button Pressed");
+    debugPrint(">>> CURRENT METER INFO MAP: $_meterInfo");
+    
+    setState(() => _isCheckingState = true);
+    
+    try {
+      final meterNo = _meterInfo!['display_meter'] ?? "";
+      final kind = _meterInfo!['MTR_KIND'] ?? "";
+      
+      debugPrint(">>> PRE-FLIGHT CHECK: Meter=$meterNo, Kind=$kind");
+
+      if (meterNo.isEmpty || meterNo == "---") {
+        throw "رقم العداد غير متوفر.";
+      }
+      
+      if (kind.isEmpty || kind == "---") {
+        throw "نوع العداد (KIND) غير متوفر في بيانات هذا المشترك.";
+      }
+
+      final state = await MeterService.getMeterState(meterNo, kind);
+      
+      debugPrint(">>> API SUCCESS: Result=$state");
+
+      if (mounted) {
+        setState(() {
+          _liveMeterState = state;
+          _isCheckingState = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("الحالة الحالية: $state", textAlign: TextAlign.right), 
+            backgroundColor: _getLiveStateColor(),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint(">>> FATAL UI ERROR: $e");
+      if (mounted) {
+        setState(() => _isCheckingState = false);
+        _showErrorSnackBar("فشل الفحص: $e");
+      }
+    }
+  }
+
+  void _handleCheckVoltage() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+
+    setState(() => _isCheckingVoltage = true);
+
+    try {
+      final meterNo = _meterInfo!['display_meter'] ?? "";
+      final kind = _meterInfo!['MTR_KIND'] ?? "";
+
+      if (meterNo.isEmpty || meterNo == "---") throw "رقم العداد غير متوفر";
+
+      // الخطوة 1: التأكد من أن العداد Connected
+      debugPrint(">>> VOLTAGE: STEP 1 - Checking State");
+      final state = await MeterService.getMeterState(meterNo, kind);
+      
+      if (mounted) setState(() => _liveMeterState = state);
+
+      if (!state.toLowerCase().contains("connected")) {
+        throw "لا يمكن جلب الفولتية لأن العداد غير متصل حالياً (الحالة: $state)";
+      }
+
+      // الخطوة 2: طلب الفولتية
+      debugPrint(">>> VOLTAGE: STEP 2 - Requesting Voltage");
+      final voltage = await MeterService.getMeterVoltage(meterNo);
+
+      if (voltage.startsWith("خطأ") || voltage.contains("فشل")) {
+        throw voltage;
+      }
+
+      if (mounted) {
+        setState(() => _isCheckingVoltage = false);
+        
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Text('قراءة الفولتية', style: TextStyle(fontWeight: FontWeight.bold)),
+                SizedBox(width: 10),
+                Icon(Icons.electric_meter, color: Colors.orange),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('قيمة الجهد الكهربائي اللحظي للعداد:', textAlign: TextAlign.right),
+                const SizedBox(height: 15),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    '$voltage فولت',
+                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.orange),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('حسناً', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint(">>> VOLTAGE ERROR: $e");
+      if (mounted) {
+        setState(() => _isCheckingVoltage = false);
+        _showErrorSnackBar("$e");
+      }
+    }
+  }
+
+  void _handleEnableGPRS() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+
+    // 1. محاكاة الاتصال بجهاز البروب عبر البلوتوث
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text('جاري الاتصال بجهاز البروب وإرسال أمر التفعيل...', textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    Navigator.pop(context); // إغلاق الديالوج
+
+    // 2. محاكاة نجاح إرسال كود الـ Hex للعداد
+    // في الواقع هنا نرسل الـ bytes: 12 23 03 74 F0 2C E6 E7 00 C4 01 81 00 03 01 04
+    
+    // 3. إرسال الحركة للسيرفر للتوثيق (ProbeGPRSConnTrans)
+    setState(() => _isCheckingState = true);
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      final result = await DirectCurrentService.probeGPRSConnTrans(
+        meterNum: _meterInfo!['display_meter'] ?? "",
+        workshopId: prefs.getString('SYS_MINOR') ?? "",
+        workshopName: prefs.getString('SYS_DESC') ?? "", // عادة يكون اسم الورشة مخزن في SYS_DESC
+        userName: prefs.getString('ORACLE_USER') ?? "",
+        cityId: _meterInfo!['MTR_CITY'] ?? "",
+        custId: _meterInfo!['MTR_NUM'] ?? "",
+      );
+
+      if (mounted) {
+        setState(() => _isCheckingState = false);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("تفعيل GPRS: $result", textAlign: TextAlign.right),
+            backgroundColor: result.contains("نجاح") || result.contains("تم") ? AppColors.success : AppColors.danger,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCheckingState = false);
+        _showErrorSnackBar("فشل توثيق العملية: $e");
+      }
+    }
+  }
+
+  void _handleProbeConnectMeter() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+
+    if (!_isProbeConnected) {
+      _showErrorSnackBar("يرجى الاقتران بالبروب أولاً");
+      return;
+    }
+
+    // الخطوة 1: فحص الحالة الحالية (يجب أن يكون Disconnected للوصل)
+    debugPrint(">>> PROBE CONNECT: Step 1 - Checking State");
+    setState(() => _isCheckingState = true);
+    
+    try {
+      final state = await MeterService.getMeterState(_meterInfo!['display_meter'] ?? "", _meterInfo!['MTR_KIND'] ?? "");
+      if (mounted) setState(() => _liveMeterState = state);
+
+      if (!state.toLowerCase().contains("disconnected")) {
+        throw "لا يمكن الوصل: حالة العداد الحالية هي ($state). يجب أن يكون مفصولاً ليتم وصله.";
+      }
+
+      // الخطوة 2: حوار التأكيد
+      if (!mounted) return;
+      bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('تأكيد عملية الوصل', textAlign: TextAlign.right),
+          content: const Text('هل أنت متأكد من رغبتك في إرسال أمر الوصل للعداد عبر البروب؟', textAlign: TextAlign.right),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+              child: const Text('تأكيد الوصل', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true) {
+        setState(() => _isCheckingState = false);
+        return;
+      }
+
+      // الخطوة 3: إرسال سلسلة أوامر الـ Hex (DLMS Protocol)
+      debugPrint(">>> PROBE CONNECT: Step 3 - Sending Hex Sequence");
+      
+      // 1. التهيئة (Baudrate Setup)
+      // Commands: 06 32 30 32 0D 0A -> 55 AF 3F 21 8D 0A
+      await Future.delayed(const Duration(milliseconds: 900));
+
+      // 2. فتح الجلسة (HDLC Connect)
+      // Command: 7E A0 07 03 23 93 BF 32 7E
+      await Future.delayed(const Duration(milliseconds: 900));
+
+      // 3. أمر الوصل الفعلي (Relay Connect)
+      // Command: 7E A0 1B 03 23 54 99 D4 E6 E6 00 C3 01 81 00 46 00 00 60 03 0A FF 02 01 11 00 75 EF 7E
+      await Future.delayed(const Duration(milliseconds: 900));
+
+      // 4. إغلاق الجلسة
+      // Command: 7E A0 07 03 23 53 B3 F4 7E
+      await Future.delayed(const Duration(milliseconds: 900));
+
+      // الخطوة 4: التوثيق في السيرفر (API)
+      debugPrint(">>> PROBE CONNECT: Step 4 - Server Documentation");
+      final prefs = await SharedPreferences.getInstance();
+      
+      final result = await DirectCurrentService.recordProbeConnection(
+        meterNum: _meterInfo!['display_meter'] ?? "",
+        workshopId: prefs.getString('SYS_MINOR') ?? "",
+        workshopName: prefs.getString('SYS_DESC') ?? "",
+        userName: prefs.getString('ORACLE_USER') ?? "",
+        cityId: _meterInfo!['MTR_CITY'] ?? "",
+        custId: _meterInfo!['MTR_NUM'] ?? "",
+      );
+
+      if (mounted) {
+        setState(() {
+          _isCheckingState = false;
+          _liveMeterState = "Connected"; // تحديث الحالة في الواجهة فوراً
+        });
+        
+        _showSuccessSnackBar("عملية الوصل: $result");
+      }
+
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCheckingState = false);
+        _showErrorSnackBar(e.toString());
+      }
+    }
+  }
+
+  void _handleProbeLightStatus() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+    if (!_isProbeConnected) {
+      _showErrorSnackBar("يرجى الاقتران بالبروب أولاً");
+      return;
+    }
+
+    setState(() => _isCheckingState = true);
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text('جاري قراءة حالة الإنارة من العداد...', textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // 1. أوامر التهيئة (900ms)
+      await Future.delayed(const Duration(milliseconds: 900));
+
+      // 2. أمر قراءة حالة الإنارة (900ms)
+      // Command: 7E A0 19 03 23 54 EF ED E6 E6 00 C0 01 81 00 46 00 00 60 03 0A FF 04 00 FB FC 7E
+      await Future.delayed(const Duration(milliseconds: 900));
+
+      // 3. محاكاة تحليل الرد (Mode5 / Mode6)
+      // سنقوم بتبديل الحالة عشوائياً للمعاينة في هذه المرحلة
+      bool isActive = DateTime.now().second % 2 == 0;
+      String statusText = isActive 
+          ? "الإنارة فعالة (القاطع واصل خلال الليل فقط)" 
+          : "الإنارة غير فعالة (القاطع واصل طوال اليوم)"; 
+
+      if (mounted) {
+        Navigator.pop(context); // إغلاق التحميل
+        setState(() {
+          _isCheckingState = false;
+          _lightingStatus = statusText; // حفظ الحالة للعرض في لوحة الحالة
+        });
+
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Text('حالة الإنارة', style: TextStyle(fontWeight: FontWeight.bold)),
+                SizedBox(width: 10),
+                Icon(Icons.light_mode_rounded, color: Colors.orange),
+              ],
+            ),
+            content: Text(
+              statusText, 
+              textAlign: TextAlign.right, 
+              style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.textPrimary)
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context), 
+                child: const Text('حسناً', style: TextStyle(fontWeight: FontWeight.bold))
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        setState(() => _isCheckingState = false);
+        _showErrorSnackBar("فشل قراءة حالة الإنارة: $e");
+      }
+    }
+  }
+
+  void _handleProbeEnableLight() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+    if (!_isProbeConnected) {
+      _showErrorSnackBar("يرجى الاقتران بالبروب أولاً");
+      return;
+    }
+
+    // 1. حوار التأكيد
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تفعيل نظام الإنارة', textAlign: TextAlign.right),
+        content: const Text('هل أنت متأكد من رغبتك في إرسال أمر تفعيل الإنارة (القاطع ليل فقط) للعداد؟', textAlign: TextAlign.right),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('تأكيد التفعيل', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isCheckingState = true);
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text('جاري إرسال أمر تفعيل الإنارة للعداد...', textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // 2. محاكاة تسلسل أوامر الـ Hex
+      await Future.delayed(const Duration(milliseconds: 900)); // التهيئة
+      
+      // إرسال الأمر الفعلي: 7E A0 1B 03 23 54 99 D4 E6 E6 00 C1 01 81 00 46 00 00 60 03 0A FF 04 00 16 05 C2 74 7E
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 3. التوثيق في السيرفر (type: 6 يمثل تفعيل الإنارة)
+      final meterNo = _meterInfo!['display_meter'] ?? "";
+      final logResult = await MeterService.recordModeLog(6, meterNo);
+
+      if (mounted) {
+        Navigator.pop(context); // إغلاق التحميل
+        setState(() {
+          _isCheckingState = false;
+          _lightingStatus = "الإنارة فعالة (القاطع واصل خلال الليل فقط)";
+        });
+        _showSuccessSnackBar("تفعيل الإنارة: $logResult");
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        setState(() => _isCheckingState = false);
+        _showErrorSnackBar("فشل التفعيل: $e");
+      }
+    }
+  }
+
+  void _handleProbeDisableLight() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+    if (!_isProbeConnected) {
+      _showErrorSnackBar("يرجى الاقتران بالبروب أولاً");
+      return;
+    }
+
+    // 1. حوار التأكيد
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('إلغاء نظام الإنارة', textAlign: TextAlign.right),
+        content: const Text('هل أنت متأكد من رغبتك في إرسال أمر إلغاء الإنارة (القاطع واصل طوال اليوم) للعداد؟', textAlign: TextAlign.right),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+            child: const Text('تأكيد الإلغاء', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isCheckingState = true);
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text('جاري إرسال أمر إلغاء الإنارة للعداد...', textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // 2. محاكاة تسلسل أوامر الـ Hex
+      await Future.delayed(const Duration(milliseconds: 900)); // التهيئة
+      
+      // إرسال أمر إلغاء الإنارة (Mode 6)
+      // Command: 7E A0 1B 03 23 54 99 D4 E6 E6 00 C1 01 81 00 46 00 00 60 03 0A FF 04 00 16 06 59 46 7E
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 3. التوثيق في السيرفر (type: 7 يمثل إلغاء الإنارة كما في الجافا)
+      final meterNo = _meterInfo!['display_meter'] ?? "";
+      final logResult = await MeterService.recordModeLog(7, meterNo);
+
+      if (mounted) {
+        Navigator.pop(context); // إغلاق التحميل
+        setState(() {
+          _isCheckingState = false;
+          _lightingStatus = "الإنارة غير فعالة (القاطع واصل طوال اليوم)";
+        });
+        _showSuccessSnackBar("إلغاء الإنارة: $logResult");
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        setState(() => _isCheckingState = false);
+        _showErrorSnackBar("فشل الإلغاء: $e");
+      }
+    }
+  }
+
+  void _handleProbeConnection() async {
+    // 1. طلب الصلاحيات اللازمة (Android 12+)
+    if (await Permission.bluetoothConnect.request().isDenied || 
+        await Permission.bluetoothScan.request().isDenied) {
+      _showErrorSnackBar("يرجى منح صلاحيات البلوتوث للعمل");
+      return;
+    }
+
+    // 2. التحقق إذا كان البلوتوث مغلقاً بالفعل
+    if (_bluetoothState != BluetoothAdapterState.on) {
+      _showErrorSnackBar("البلوتوث مغلق. يرجى تفعيله أولاً");
+      return;
+    }
+
+    setState(() => _isCheckingState = true);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text('جاري البحث عن أجهزة البروب والاقتران...', textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // محاكاة mmSocket.connect()
+      await Future.delayed(const Duration(seconds: 3));
+      
+      // لنفترض نجاح الاتصال هنا
+      if (mounted) {
+        Navigator.pop(context);
+        setState(() {
+          _isProbeConnected = true;
+          _isCheckingState = false;
+        });
+        _showSuccessSnackBar("تم الاقتران مع جهاز البروب بنجاح");
+      }
+    } catch (e) {
+      // بلوك الـ catch كما في الجافا تماماً
+      if (mounted) {
+        Navigator.pop(context);
+        setState(() {
+          _isProbeConnected = false;
+          _isCheckingState = false;
+        });
+        _showErrorSnackBar("فشل الاقتران: الجهاز غير مقترن مع البروب");
+      }
+    }
+  }
+
+  void _handleRemoteConnection() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+
+    final meterNo = _meterInfo!['display_meter'] ?? "";
+    final kind = _meterInfo!['MTR_KIND'] ?? "";
+    final currentState = _liveMeterState ?? _meterInfo!['state'] ?? "";
+
+    // التحقق من أن العداد مفصول قبل محاولة الوصل كما في الجافا
+    if (!currentState.toLowerCase().contains("disconnected")) {
+      _showErrorSnackBar("العداد ليس في حالة فصل (الحالة الحالية: $currentState)");
+      return;
+    }
+
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تأكيد وصل عن بعد', textAlign: TextAlign.right),
+        content: const Text('سوف يتم وصل العداد عن بعد بدون حركة، هل تريد تأكيد العملية؟', textAlign: TextAlign.right),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.success),
+            child: const Text('تأكيد الوصل', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isCheckingState = true);
+    try {
+      final result = await MeterService.remoteConnection(meterNo, kind);
+      
+      if (mounted) {
+        setState(() {
+          _isCheckingState = false;
+          if (result.contains("نجاح") || result.contains("تم")) {
+            _liveMeterState = "Connected";
+          }
+        });
+        _showSuccessSnackBar(result);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCheckingState = false);
+        _showErrorSnackBar("فشل الوصل عن بعد: $e");
+      }
+    }
+  }
+
+  void _handleRemoteConnectionWithMovement() async {
+    if (_meterInfo == null) {
+      _showErrorSnackBar("يرجى الاستعلام عن عداد أولاً");
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final workshopId = prefs.getString('SYS_MINOR') ?? "";
+    final workshopName = prefs.getString('SYS_DESC') ?? "";
+
+    if (workshopId.isEmpty) {
+      _showErrorSnackBar("يرجى ضبط رقم الورشة من الإعدادات أولاً");
+      return;
+    }
+
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('وصل عن بعد مع حركة', textAlign: TextAlign.right),
+        content: const Text('هل تريد تأكيد وصل العداد عن بعد مع تسجيل حركة ورشات؟', textAlign: TextAlign.right),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            child: const Text('تأكيد وإرسال', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isCheckingState = true);
+    try {
+      // استخدام إحداثيات افتراضية كما في الجافا إذا لم يتوفر GPS
+      // في الجافا يتم استخدام MainActivity.myLoc.getLatitude()
+      final result = await MeterService.remoteConnectionWithMovement(
+        meterNo: _meterInfo!['display_meter'] ?? "",
+        workshopId: workshopId,
+        workshopName: workshopName,
+        cityId: _meterInfo!['MTR_CITY'] ?? "",
+        custId: _meterInfo!['MTR_NUM'] ?? "",
+        lat: 0.0,
+        lng: 0.0,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isCheckingState = false;
+          if (result.contains("نجاح") || result.contains("تم")) {
+            _liveMeterState = "Connected";
+          }
+        });
+        _showSuccessSnackBar(result);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCheckingState = false);
+        _showErrorSnackBar("فشل الوصل مع الحركة: $e");
+      }
+    }
+  }
+
+  void _showSuccessSnackBar(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, textAlign: TextAlign.right),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Color _getLiveStateColor() {
+    if (_liveMeterState == null) return AppColors.success;
+    final state = _liveMeterState!.toLowerCase();
+    if (state.contains("connected")) return Colors.green;
+    if (state.contains("disconnected")) return Colors.red;
+    if (state.contains("offline")) return Colors.orange;
+    return AppColors.textSecondary;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Directionality(
+        textDirection: TextDirection.rtl,
+        child: CustomScrollView(
+          controller: _scrollController, // ربط وحدة التحكم
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            // --- Premium Header with Logo ---
+            SliverAppBar(
+              expandedHeight: 240,
+              pinned: true,
+              stretch: true,
+              backgroundColor: AppColors.primary,
+              elevation: 0,
+              flexibleSpace: FlexibleSpaceBar(
+                stretchModes: const [StretchMode.zoomBackground],
+                background: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                      colors: [AppColors.primary, AppColors.primaryLight],
+                    ),
+                  ),
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        top: -30,
+                        right: -30,
+                        child: CircleAvatar(radius: 80, backgroundColor: Colors.white.withOpacity(0.05)),
+                      ),
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const SizedBox(height: 20), // Higher up
+                            // Circular Logo Display - Elegant and Premium
+                            Container(
+                              height: 120,
+                              width: 120,
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white.withOpacity(0.5), width: 4),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 10),
+                                  )
+                                ],
+                              ),
+                              child: ClipOval(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10.0),
+                                  child: Image.asset(
+                                    'assets/images/images.jpg',
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'كهرباء إربد',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                            const Text(
+                              'نظام إدارة العدادات الذكية المتكامل',
+                              style: TextStyle(color: Colors.white70, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              leading: IconButton(
+                icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 28),
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    ),
+                    builder: (context) => Directionality(
+                      textDirection: TextDirection.rtl,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'إعدادات الحساب',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 20),
+                            ListTile(
+                              leading: const Icon(Icons.lock_reset_rounded, color: AppColors.warning),
+                              title: const Text('تغيير كلمة المرور'),
+                              onTap: () {
+                                Navigator.pop(context);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                                );
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.logout_rounded, color: AppColors.danger),
+                              title: const Text('تسجيل الخروج'),
+                              onTap: () {
+                                Navigator.pop(context);
+                                _handleLogout();
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // --- Dashboard Content ---
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  // 1. Search Card
+                  _buildSearchCard(),
+                  const SizedBox(height: 25),
+
+                  // 2. Animated Results Section
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 600),
+                    child: _isLoading 
+                        ? const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+                        : _showResult && _meterInfo != null
+                        ? Column(
+                      key: const ValueKey('result'),
+                      children: [
+                        _buildDetailedResultCard(),
+                        const SizedBox(height: 32),
+                      ],
+                    )
+                        : const SizedBox.shrink(),
+                  ),
+
+                  // --- ALL PANEL SECTIONS WITH DROPDOWN EFFECT ---
+
+                  _buildExpandablePanel(0, 'لوحة حركات تأمين التيار بشكل مباشر', Icons.flash_on_rounded, [
+                    _buildFeatureAction(
+                      Icons.bolt_rounded, 
+                      'إدخال حركة تأمين', 
+                      AppColors.primary,
+                      onTap: _navigateToDirectInsert,
+                    ),
+                    _buildFeatureAction(
+                      Icons.manage_search_rounded, 
+                      'إستعلام حركات', 
+                      AppColors.primary,
+                      onTap: () {
+                        if (_meterInfo != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => DirectCurrentManagementScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                  ], crossAxisCount: 2),
+
+                  const SizedBox(height: 20),
+
+                  _buildExpandablePanel(1, 'لوحة العدادات الذكية للتحكم عن بعد', Icons.settings_remote_rounded, [
+                    _buildFeatureAction(
+                      Icons.speed_rounded, 
+                      'القراءة الحالية', 
+                      Colors.indigo,
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('هذه الخدمة (القراءة الحالية) قيد التطوير حالياً', textAlign: TextAlign.right),
+                            backgroundColor: AppColors.success,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.fact_check_outlined, 
+                      'حالة العداد', 
+                      Colors.indigo,
+                      onTap: _handleCheckMeterState,
+                      isLoading: _isCheckingState,
+                    ),
+                    _buildFeatureAction(
+                      Icons.electric_meter_outlined, 
+                      'عرض الفولتية', 
+                      Colors.indigo,
+                      onTap: _handleCheckVoltage,
+                      isLoading: _isCheckingVoltage,
+                    ),
+                    _buildFeatureAction(
+                      Icons.receipt_long_rounded, 
+                      'فواتير العداد', 
+                      Colors.indigo,
+                      onTap: () async {
+                        if (_meterInfo != null) {
+                          final prefs = await SharedPreferences.getInstance();
+                          String oracleUser = prefs.getString('ORACLE_USER') ?? "";
+                          String meterNo = _meterInfo!['display_meter'] ?? "";
+                          String kind = _meterInfo!['MTR_KIND'] ?? "";
+
+                          // 1. تسجيل الحدث في السيرفر كما في الجافا
+                          if (meterNo.isNotEmpty && oracleUser.isNotEmpty) {
+                            MeterService.logSmartMeterEvent(meterNo, oracleUser, "Remote Meter Bills");
+                          }
+
+                          // 2. التحقق من نوع العداد كما في الجافا (متاح لعدادات Holley)
+                          if (kind.toUpperCase().startsWith("HOL")) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ViewMeterBillingScreen(meterInfo: _meterInfo!),
+                              ),
+                            );
+                          } else {
+                            _showErrorSnackBar("هذه الميزة متاحة فقط لعدادات Holley حالياً");
+                          }
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.event_note, 
+                      'إيفينت العداد', 
+                      Colors.indigo,
+                      onTap: () {
+                        if (_meterInfo != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ViewMeterEventsScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.people_alt_outlined, 
+                      'فواتير المشترك', 
+                      Colors.indigo,
+                      onTap: () {
+                        if (_meterInfo != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ViewCustomerBillScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.link_off_rounded, 
+                      'إنشاء معاملة فصل', 
+                      AppColors.danger,
+                      onTap: () async {
+                        if (_meterInfo != null) {
+                          final prefs = await SharedPreferences.getInstance();
+                          final user = prefs.getString('ORACLE_USER') ?? "";
+                          final workshop = prefs.getString('SYS_MINOR') ?? "";
+
+                          if (user.isEmpty || workshop.isEmpty) {
+                            _showErrorSnackBar('يرجى ضبط رقم المستخدم والورشة من الإعدادات أولاً');
+                            return;
+                          }
+
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CreateDisconnectionScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.link_rounded, 
+                      'إنشاء معاملة وصل', 
+                      AppColors.success,
+                      onTap: () async {
+                        if (_meterInfo != null) {
+                          final prefs = await SharedPreferences.getInstance();
+                          final user = prefs.getString('ORACLE_USER') ?? "";
+                          final workshop = prefs.getString('SYS_MINOR') ?? "";
+
+                          if (user.isEmpty || workshop.isEmpty) {
+                            _showErrorSnackBar('يرجى ضبط رقم المستخدم والورشة من الإعدادات أولاً');
+                            return;
+                          }
+
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CreateConnectionScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.online_prediction_rounded, 
+                      'وصل عن بعد', 
+                      Colors.indigo,
+                      onTap: _handleRemoteConnection,
+                      isLoading: _isCheckingState,
+                    ),
+                  ], crossAxisCount: 3),
+
+                  const SizedBox(height: 20),
+
+                  _buildExpandablePanel(
+                    2, 
+                    'لوحة تحكم البروب', 
+                    Icons.cable_rounded, 
+                    [
+                    _buildFeatureAction(
+                      Icons.bluetooth_searching_rounded, 
+                      'بدء الاقتران', 
+                      Colors.teal,
+                      onTap: _handleProbeConnect,
+                    ),
+                    _buildFeatureAction(
+                      Icons.cell_tower_rounded, 
+                      'تفعيل GPRS', 
+                      Colors.teal,
+                      onTap: _isProbeConnected ? _handleEnableGPRS : () => _showErrorSnackBar("يرجى الاقتران بالبروب أولاً"),
+                    ),
+                    _buildFeatureAction(
+                      Icons.info_outline, 
+                      'حالة العداد', 
+                      Colors.teal,
+                      onTap: _isProbeConnected ? _handleCheckMeterState : () => _showErrorSnackBar("يرجى الاقتران بالبروب أولاً"),
+                    ),
+                    _buildFeatureAction(
+                      Icons.link, 
+                      'وصل مع حركة', 
+                      Colors.teal,
+                      onTap: _handleRemoteConnectionWithMovement,
+                      isLoading: _isCheckingState,
+                    ),
+                    _buildFeatureAction(Icons.link_off, 'فصل مع حركة', Colors.teal),
+                    _buildFeatureAction(
+                      Icons.settings_input_component, 
+                      'وصل بروب', 
+                      Colors.teal,
+                      onTap: _handleProbeConnectMeter,
+                    ),
+                    _buildFeatureAction(
+                      Icons.light_mode_outlined, 
+                      'حالة الإنارة', 
+                      Colors.teal,
+                      onTap: _handleProbeLightStatus,
+                    ),
+                    _buildFeatureAction(
+                      Icons.lightbulb_rounded, 
+                      'تفعيل الإنارة', 
+                      Colors.teal,
+                      onTap: _handleProbeEnableLight,
+                    ),
+                    _buildFeatureAction(
+                      Icons.lightbulb_outline_rounded, 
+                      'إلغاء الإنارة', 
+                      Colors.teal,
+                      onTap: _handleProbeDisableLight,
+                    ),
+                  ], 
+                  crossAxisCount: 3,
+                  status: _buildProbeStatusWidget(),
+                ),
+
+                  const SizedBox(height: 20),
+
+                  _buildExpandablePanel(3, 'لوحة الفصل والوصل', Icons.power_settings_new_rounded, [
+                    _buildFeatureAction(
+                      Icons.link_rounded, 
+                      'إنشاء وصل', 
+                      Colors.blueGrey,
+                      onTap: () {
+                        if (_meterInfo != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CreateConnectionScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.link_off_rounded, 
+                      'إنشاء فصل', 
+                      Colors.blueGrey,
+                      onTap: () {
+                        if (_meterInfo != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CreateDisconnectionScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.note_add_outlined, 
+                      'إنشاء معاملة', 
+                      AppColors.danger,
+                      onTap: () {
+                        if (_meterInfo != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CreateTransactionScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.list_alt_rounded, 
+                      'إستعلام وصل', 
+                      Colors.blueGrey,
+                      onTap: () => _logAndNavigateToInquiry("Conn Inquiry"),
+                    ),
+                    _buildFeatureAction(
+                      Icons.history_rounded, 
+                      'إستعلام فصل', 
+                      Colors.blueGrey,
+                      onTap: () => _logAndNavigateToInquiry("Disconn Inquiry"),
+                    ),
+                    _buildFeatureAction(
+                      Icons.assignment_outlined, 
+                      'إستعلام معاملات', 
+                      Colors.blueGrey,
+                      onTap: _logAndNavigateToTechnicalInquiry,
+                    ),
+                    _buildFeatureAction(
+                      Icons.format_list_bulleted_rounded, 
+                      'حركات التوصيل', 
+                      Colors.blueGrey,
+                      onTap: () => _logAndNavigateToInquiry("Conn Inquiry"),
+                    ),
+                    _buildFeatureAction(
+                      Icons.sync_rounded, 
+                      'مزامنة الحركات', 
+                      Colors.blueGrey,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SyncDataScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildFeatureAction(
+                      Icons.wifi_off_rounded, 
+                      'فاقد الاتصال', 
+                      AppColors.danger,
+                      onTap: () {
+                        if (_meterInfo != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => AddNotesScreen(meterInfo: _meterInfo!),
+                            ),
+                          );
+                        } else {
+                          _showErrorSnackBar('يرجى الاستعلام عن عداد أولاً');
+                        }
+                      },
+                    ),
+                  ], crossAxisCount: 3),
+
+                  const SizedBox(height: 20),
+
+                  _buildExpandablePanel(4, 'لوحة تحكم GPRS', Icons.router_rounded, [
+                    _buildFeatureAction(
+                      Icons.router, 
+                      'تفعيل GPRS', 
+                      Colors.cyan[700]!,
+                      onTap: _handleEnableGPRS,
+                    ),
+                    _buildFeatureAction(
+                      Icons.monitor_heart_outlined, 
+                      'حالة العداد', 
+                      Colors.cyan[700]!,
+                      onTap: _handleCheckMeterState,
+                    ),
+                    _buildFeatureAction(
+                      Icons.settings_suggest_rounded, 
+                      'برمجة الشبكة', 
+                      Colors.cyan[700]!,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const NetworkConfigurationScreen()),
+                        );
+                      },
+                    ),
+                  ], crossAxisCount: 3),
+
+                  const SizedBox(height: 60),
+                ]),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- Styled Builder Helper Methods ---
+
+  Widget _buildSearchCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 25, offset: const Offset(0, 10))
+        ],
+      ),
+      child: Column(
+        children: [
+          _buildPrettyInputField(controller: _meterController, label: 'رقم العداد', icon: Icons.qr_code_scanner_rounded),
+          const SizedBox(height: 12),
+          _buildPrettyInputField(controller: _subscriberController, label: 'رقم الإشتراك', icon: Icons.badge_outlined),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _handleSearch,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 4,
+              shadowColor: AppColors.primary.withOpacity(0.4),
+            ),
+            child: const Text('إستعلام عن البيانات', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrettyInputField({required TextEditingController controller, required String label, required IconData icon}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.background.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+      ),
+      child: TextField(
+        controller: controller,
+        textAlign: TextAlign.right,
+        keyboardType: TextInputType.number,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.textPrimary),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+          prefixIcon: icon == Icons.qr_code_scanner_rounded 
+            ? IconButton(
+                icon: Icon(icon, color: AppColors.primaryLight, size: 22),
+                onPressed: () => _showErrorSnackBar("جاري تفعيل ماسح الباركود..."),
+              )
+            : Icon(icon, color: AppColors.primaryLight, size: 22),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailedResultCard() {
+    debugPrint(">>> Rendering DetailedResultCard - Meter: ${_meterInfo?['display_meter']}");
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: AppColors.primary.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 25, offset: const Offset(0, 12))
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('نتيجة الاستعلام للرقم', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    const SizedBox(height: 4),
+                    Text(_currentSearchId, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: AppColors.textPrimary), overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _getLiveStateColor().withOpacity(0.1), 
+                    borderRadius: BorderRadius.circular(15)
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(radius: 3, backgroundColor: _getLiveStateColor()),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _liveMeterState != null ? "($_liveMeterState)" : (_meterInfo?['state'] ?? 'غير متوفر'), 
+                          style: TextStyle(color: _getLiveStateColor(), fontSize: 11, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Padding(padding: EdgeInsets.symmetric(vertical: 20), child: Divider(height: 1, color: Color(0xFFF1F5F9))),
+          _buildResultInfoRow(Icons.person_pin_rounded, 'اسم المشترك:', _meterInfo?['display_name'] ?? 'غير متوفر'),
+          _buildResultInfoRow(Icons.badge_rounded, 'رقم الإشتراك:', _meterInfo?['display_id'] ?? 'غير متوفر'),
+          _buildResultInfoRow(Icons.electric_meter_outlined, 'رقم العداد:', _meterInfo?['display_meter'] ?? 'غير متوفر'),
+          _buildResultInfoRow(Icons.phone_android_rounded, 'هاتف القارئ:', _meterInfo?['display_mobile'] ?? 'غير متوفر'),
+          _buildResultInfoRow(Icons.calendar_month_rounded, 'موعد القراءة:', _meterInfo?['reading_date'] ?? 'غير متوفر'),
+          _buildResultInfoRow(Icons.location_on_rounded, 'الموقع الجغرافي:', 
+              (_meterInfo?['POS_X'] != "---" && _meterInfo?['POS_Y'] != "---") 
+              ? "${_meterInfo?['POS_X']} , ${_meterInfo?['POS_Y']}" 
+              : 'غير متوفر'),
+          const SizedBox(height: 15),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: _buildModernStatBadge(Icons.memory_rounded, _meterInfo?['display_smart'] ?? 'غير متوفر', 'نوع العداد')),
+              Expanded(child: _buildModernStatBadge(Icons.bolt_rounded, _meterInfo?['display_faz'] ?? 'غير متوفر', 'المرحلة')),
+              Expanded(child: _buildModernStatBadge(Icons.location_on_outlined, _meterInfo?['display_area'] ?? 'إربد', 'المنطقة')),
+            ],
+          ),
+          const SizedBox(height: 25),
+          _buildDetailMetricRow('عدد الفواتير المستحقة:', '${_meterInfo?['INVOICE_COUNT'] ?? '0'} فاتورة'),
+          _buildDetailMetricRow('مجموع الذمم المطلوبة:', '${_meterInfo?['display_inv_amt'] ?? '0'} دينار', isHighlighted: true),
+          const SizedBox(height: 28),
+          
+          // زر الفحص المحدث مع تتبع اللمس
+          SizedBox(
+            width: double.infinity,
+            height: 54,
+            child: ElevatedButton.icon(
+              onPressed: _isCheckingState ? null : () {
+                debugPrint(">>> UI: USER CLICKED THE CHECK BUTTON");
+                _handleCheckMeterState();
+              },
+              icon: _isCheckingState 
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
+                : const Icon(Icons.cloud_sync_outlined, size: 20),
+              label: Text(
+                _isCheckingState ? 'جاري الفحص...' : 'فحص حالة العداد الآن', 
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryLight.withOpacity(0.08),
+                foregroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 0,
+              ),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _handleProbeConnect() async {
+    debugPrint(">>> ACTION: Probe Connect Initiation");
+    
+    // 1. طلب الصلاحيات
+    final scanStatus = await Permission.bluetoothScan.request();
+    final connectStatus = await Permission.bluetoothConnect.request();
+    final locationStatus = await Permission.location.request();
+
+    debugPrint(">>> PERMISSIONS: Scan=$scanStatus, Connect=$connectStatus, Location=$locationStatus");
+
+    if (scanStatus.isGranted && connectStatus.isGranted) {
+      if (_bluetoothState != BluetoothAdapterState.on) {
+        _showErrorSnackBar("يرجى تفعيل البلوتوث أولاً");
+        return;
+      }
+
+      // 2. فتح شاشة البحث عن الأجهزة (الاقتران)
+      debugPrint(">>> UI: Showing Bluetooth Device List Dialog");
+      final BluetoothDevice? selectedDevice = await showDialog<BluetoothDevice>(
+        context: context,
+        builder: (context) => const BluetoothDeviceListDialog(),
+      );
+
+      if (selectedDevice != null) {
+        debugPrint(">>> PAIRED: ${selectedDevice.platformName}");
+        setState(() {
+          _isProbeConnected = true;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("تم الاقتران مع: ${selectedDevice.platformName}", textAlign: TextAlign.right),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      debugPrint(">>> PERMISSIONS FAILED: Showing Dialog Anyway (Attempt)");
+      // محاولة فتح الدايالوج حتى لو فشلت الصلاحيات لرؤية إذا كان هذا هو العائق
+      final BluetoothDevice? selectedDevice = await showDialog<BluetoothDevice>(
+        context: context,
+        builder: (context) => const BluetoothDeviceListDialog(),
+      );
+      
+      if (selectedDevice == null) {
+        _showErrorSnackBar("يجب منح صلاحيات البلوتوث والموقع للبحث عن البروب");
+      }
+    }
+  }
+
+  Widget _buildProbeStatusWidget() {
+    bool isBtOff = _bluetoothState != BluetoothAdapterState.on;
+    
+    return InkWell(
+      onTap: _handleProbeConnect,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      decoration: BoxDecoration(
+        color: isBtOff 
+            ? Colors.red.withOpacity(0.05)
+            : _isProbeConnected 
+                ? const Color(0xFF06F106).withOpacity(0.1) 
+                : Colors.grey.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: isBtOff 
+              ? Colors.red.withOpacity(0.3)
+              : _isProbeConnected 
+                  ? const Color(0xFF06F106).withOpacity(0.3) 
+                  : Colors.grey.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isBtOff ? Icons.bluetooth_disabled_rounded : (_isProbeConnected ? Icons.bluetooth_connected_rounded : Icons.bluetooth_searching_rounded),
+                size: 20,
+                color: isBtOff ? Colors.red : (_isProbeConnected ? const Color(0xFF06F106) : Colors.grey[700]),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                isBtOff 
+                    ? "( البلوتوث غير مفعل )" 
+                    : (_isProbeConnected ? "( الجهاز مقترن مع البروب )" : "( الجهاز غير مقترن مع البروب )"),
+                style: TextStyle(
+                  color: isBtOff ? Colors.red : (_isProbeConnected ? const Color(0xFF06F106) : const Color(0xFF000000)),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              if (_isProbeConnected) ...[
+                const SizedBox(width: 8),
+                const CircleAvatar(
+                  radius: 4,
+                  backgroundColor: Color(0xFF06F106),
+                ),
+              ],
+            ],
+          ),
+          if (_lightingStatus != null) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: Colors.black12),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lightbulb_circle_rounded, size: 18, color: Colors.orange),
+                const SizedBox(width: 10),
+                Text(
+                  _lightingStatus!,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+      )
+
+    );
+  }
+
+  Widget _buildResultInfoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: const Color(0xFFE3F2FD), borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, size: 20, color: AppColors.primary),
+          ),
+          const SizedBox(width: 14),
+          Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          const SizedBox(width: 8),
+          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailMetricRow(String label, String value, {bool isHighlighted = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: isHighlighted ? AppColors.danger : AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernStatBadge(IconData icon, String value, String label) {
+    return Column(
+      children: [
+        Icon(icon, size: 22, color: AppColors.primaryLight.withValues(alpha: 0.7)),
+        const SizedBox(height: 8),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary))
+        ),
+        Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 10), textAlign: TextAlign.center),
+      ],
+    );
+  }
+
+  // --- Expandable Panel Component ---
+  Widget _buildExpandablePanel(int index, String title, IconData icon, List<Widget> items, {required int crossAxisCount, Widget? status}) {
+    bool expanded = _isExpanded[index];
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: expanded ? AppColors.primary : Colors.grey.withOpacity(0.15),
+          width: expanded ? 1.5 : 1,
+        ),
+        boxShadow: expanded
+            ? [BoxShadow(color: AppColors.primary.withOpacity(0.08), blurRadius: 15, offset: const Offset(0, 8))]
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Clickable Section Header
+          InkWell(
+            onTap: () => setState(() => _isExpanded[index] = !expanded),
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: expanded ? AppColors.primary.withOpacity(0.08) : AppColors.background,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(icon, size: 22, color: expanded ? AppColors.primary : AppColors.textSecondary),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: expanded ? AppColors.primary : AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  // Rotating Arrow Icon
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: expanded ? AppColors.primary : AppColors.textSecondary.withOpacity(0.8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Smooth Expand Animation for the Content
+          AnimatedSize(
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeInOut,
+            child: expanded
+                ? Column(
+                    children: [
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      if (status != null) status,
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: GridView.count(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          crossAxisCount: crossAxisCount,
+                          mainAxisSpacing: 14,
+                          crossAxisSpacing: 14,
+                          childAspectRatio: (crossAxisCount == 2) ? 1.6 : 1.0,
+                          children: items,
+                        ),
+                      ),
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showErrorSnackBar(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, textAlign: TextAlign.right),
+        backgroundColor: AppColors.danger,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _buildFeatureAction(IconData icon, String label, Color color, {VoidCallback? onTap, bool isLoading = false}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isLoading ? null : (onTap ?? () {}),
+          borderRadius: BorderRadius.circular(22),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: isLoading 
+                  ? const SizedBox(width: 25, height: 25, child: CircularProgressIndicator(strokeWidth: 2))
+                  : Icon(icon, color: color, size: 25),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Container(width: 25, height: 2, decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(1))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

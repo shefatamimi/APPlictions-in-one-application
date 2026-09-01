@@ -1,0 +1,81 @@
+name: ideco_platform
+description: "IDECO Unified Enterprise Platform — one login, many field applications"
+publish_to: "none"
+version: 2.0.0+20
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.7
+
+  # Secure session storage (platform / SSO layer)
+  flutter_secure_storage: ^9.2.4
+  shared_preferences: ^2.2.2
+
+  # Networking
+  http: ^1.2.2
+
+  # SOAP XML parsing
+  xml: ^6.5.0
+
+  # RSA encryption (for SOAP payload)
+  pointycastle: ^3.9.1
+
+  # Connectivity check
+  connectivity_plus: ^6.1.1
+
+  # Functional programming (Either<Failure, T>)
+  dartz: ^0.10.1
+
+  # Dependency injection
+  get_it: ^7.7.0
+
+  # Image Picking
+  image_picker: ^1.1.2
+
+  # Meter-reading module: maps, GPS and date formatting
+  google_maps_flutter: ^2.17.0
+  geolocator: ^14.0.0
+  intl: ^0.20.2
+
+  # Migrated features dependencies
+  flutter_blue_plus: ^1.31.0
+  permission_handler: ^11.3.1
+  encrypt: ^5.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/logo.png
+    - assets/images/logo3.png
+    - assets/images/user2.png
+    - assets/images/pass.png
+    - assets/images/back1.jpg
+    - assets/images/insp.png
+    - assets/images/worker.png
+    - assets/images/search.png
+    - assets/images/edit_icon.png
+    - assets/images/removecounter.png
+    - assets/images/approve.png
+    - assets/images/out2.png
+    - assets/images/pass2.png
+    - assets/images/images.jpg
+
+  fonts:
+    - family: AdFont
+      fonts:
+        - asset: assets/fonts/ad_font.ttf
