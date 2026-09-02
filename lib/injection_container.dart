@@ -30,7 +30,9 @@ import 'features/inspection_inquiry/data/datasources/inspection_inquiry_remote_d
 import 'features/inspection_inquiry/data/repositories/inspection_inquiry_repository_impl.dart';
 import 'features/inspection_inquiry/domain/repositories/inspection_inquiry_repository.dart';
 import 'features/inspection_inquiry/domain/usecases/get_engineers_usecase.dart';
+import 'features/inspection_inquiry/domain/usecases/get_helper_workshops_usecase.dart';
 import 'features/inspection_inquiry/domain/usecases/get_operation_usecase.dart';
+import 'features/inspection_inquiry/domain/usecases/insert_process_note_usecase.dart';
 import 'features/inspection_inquiry/presentation/cubit/inspection_inquiry_cubit.dart';
 import 'features/submission/data/datasources/submission_remote_datasource.dart';
 import 'features/submission/data/repositories/submission_repository_impl.dart';
@@ -143,6 +145,12 @@ void setupDependencies() {
   sl.registerLazySingleton<GetEngineersUseCase>(
     () => GetEngineersUseCase(sl()),
   );
+  sl.registerLazySingleton<GetHelperWorkshopsUseCase>(
+    () => GetHelperWorkshopsUseCase(sl()),
+  );
+  sl.registerLazySingleton<InsertProcessNoteUseCase>(
+    () => InsertProcessNoteUseCase(sl()),
+  );
   sl.registerLazySingleton<GetSubmissionsUseCase>(
     () => GetSubmissionsUseCase(sl()),
   );
@@ -159,6 +167,8 @@ void setupDependencies() {
     () => InspectionInquiryCubit(
       getOperationUseCase: sl(),
       getEngineersUseCase: sl(),
+      getHelperWorkshopsUseCase: sl(),
+      insertProcessNoteUseCase: sl(),
     ),
   );
 

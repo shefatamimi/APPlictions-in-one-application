@@ -22,59 +22,85 @@ import '../../domain/entities/engineer_entity.dart';
 import '../../domain/entities/operation_entity.dart';
 
 sealed class InspectionInquiryState extends Equatable {
-  const InspectionInquiryState();
+  final List<EngineerEntity> engineers;
+  final List<EngineerEntity> helperWorkshops;
+
+  const InspectionInquiryState({
+    this.engineers = const [],
+    this.helperWorkshops = const [],
+  });
+
+  @override
+  List<Object?> get props => [engineers, helperWorkshops];
 }
 
 /// Initial state before screen interaction.
 final class InspectionInquiryInitial extends InspectionInquiryState {
   const InspectionInquiryInitial();
-
-  @override
-  List<Object?> get props => [];
 }
 
-/// Engineer list loaded and form is ready.
-final class EngineersLoaded extends InspectionInquiryState {
-  final List<EngineerEntity> engineers;
-
-  const EngineersLoaded(this.engineers);
-
-  @override
-  List<Object?> get props => [engineers];
+/// Lists loaded and form is ready.
+final class FormReady extends InspectionInquiryState {
+  const FormReady({
+    super.engineers,
+    super.helperWorkshops,
+  });
 }
 
 /// A SOAP operation is in progress.
 final class InspectionInquiryLoading extends InspectionInquiryState {
-  const InspectionInquiryLoading();
-
-  @override
-  List<Object?> get props => [];
+  const InspectionInquiryLoading({
+    super.engineers,
+    super.helperWorkshops,
+  });
 }
 
 /// Operation lookup completed (may be not-found).
 final class OperationLoaded extends InspectionInquiryState {
   final OperationEntity operation;
-  final List<EngineerEntity> engineers;
 
   const OperationLoaded({
     required this.operation,
-    required this.engineers,
+    super.engineers,
+    super.helperWorkshops,
   });
 
   @override
-  List<Object?> get props => [operation, engineers];
+  List<Object?> get props => [operation, ...super.props];
+}
+
+/// Submission started.
+final class InspectionSubmitting extends InspectionInquiryState {
+  const InspectionSubmitting({
+    super.engineers,
+    super.helperWorkshops,
+  });
+}
+
+/// Submission succeeded.
+final class InspectionSuccess extends InspectionInquiryState {
+  final String message;
+
+  const InspectionSuccess({
+    required this.message,
+    super.engineers,
+    super.helperWorkshops,
+  });
+
+  @override
+  List<Object?> get props => [message, ...super.props];
 }
 
 /// A failure occurred (network or SOAP error).
 final class InspectionInquiryFailure extends InspectionInquiryState {
   final String message;
-  final List<EngineerEntity> engineers;
 
   const InspectionInquiryFailure({
     required this.message,
-    this.engineers = const [],
+    super.engineers,
+    super.helperWorkshops,
   });
 
   @override
-  List<Object?> get props => [message, engineers];
+  List<Object?> get props => [message, ...super.props];
 }

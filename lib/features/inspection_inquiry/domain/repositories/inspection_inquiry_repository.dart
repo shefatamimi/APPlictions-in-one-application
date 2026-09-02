@@ -35,4 +35,33 @@ abstract class InspectionInquiryRepository {
   ///
   /// **Returns**: `Right<List<EngineerEntity>>`, `Left<Failure>` on error.
   Future<Either<Failure, List<EngineerEntity>>> getEngineers();
+
+  /// ## insertProcessNote
+  ///
+  /// **SOAP Method**: `InsertIllegalProcessNote`
+  ///
+  /// **Description**: Saves the inspection process note with all details
+  /// (engineer, workshop, stamp, notes, photo).
+  ///
+  /// **Returns**: `Right<String>` (success message), `Left<Failure>` on error.
+  Future<Either<Failure, String>> insertProcessNote({
+    required String empNo,
+    required String workshopNum,
+    required String pid,
+    required String stampNum,
+    required String notes,
+    required String engName,
+    required String engNumber,
+    required String helperWorkshopNum,
+    required String driver,
+    required String? base64Image,
+  });
+
+  /// ## getHelperWorkshops
+  ///
+  /// **SOAP Method**: `GetIDECO_WorkshopMF`
+  /// **Query**: `wrk_type:8,office_id:0,minor:0,datatype:3`
+  ///
+  /// **Description**: Returns the list of helper workshops for the form.
+  Future<Either<Failure, List<EngineerEntity>>> getHelperWorkshops();
 }

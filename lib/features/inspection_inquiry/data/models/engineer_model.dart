@@ -24,11 +24,17 @@ class EngineerModel extends EngineerEntity {
   ///
   /// **Parameters**:
   /// - [xmlBody] — Raw SOAP response XML string.
+  /// - [idTag] — Optional tag name for the employee number (default `SYS_DESCL`).
+  /// - [nameTag] — Optional tag name for the name (default `SYS_DESC`).
   ///
   /// **Returns**: List of [EngineerModel]; empty list on parse failure.
   ///
   /// **Throws**: Never.
-  static List<EngineerModel> fromXmlList(String xmlBody) {
+  static List<EngineerModel> fromXmlList(
+    String xmlBody, {
+    String idTag = 'SYS_DESCL',
+    String nameTag = 'SYS_DESC',
+  }) {
     try {
       final document = XmlDocument.parse(xmlBody);
       final diffgram = document.descendants
@@ -41,8 +47,8 @@ class EngineerModel extends EngineerEntity {
 
       return dataSet.childElements
           .map((row) => EngineerModel(
-                empNumber: _txt(row, 'SYS_DESCL'),
-                name: _txt(row, 'SYS_DESC'),
+                empNumber: _txt(row, idTag),
+                name: _txt(row, nameTag),
               ))
           .where((e) => e.name.isNotEmpty)
           .toList();

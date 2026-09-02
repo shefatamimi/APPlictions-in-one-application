@@ -27,6 +27,15 @@ abstract class InspectionInquiryRemoteDataSource {
 
   /// Fetches the list of engineers (DataType:73).
   Future<List<EngineerModel>> getEngineers();
+
+  /// Saves the process note (InsertIllegalProcessNote).
+  Future<String> insertProcessNote({
+    required String data,
+    required String? base64Image,
+  });
+
+  /// Fetches helper workshops (GetIDECO_WorkshopMF).
+  Future<List<EngineerModel>> getHelperWorkshops();
 }
 
 // ---------------------------------------------------------------------------
@@ -136,5 +145,57 @@ class InspectionInquiryRemoteDataSourceImpl
     );
 
     return EngineerModel.fromXmlList(xmlBody);
+  }
+
+  // ── insertProcessNote ──────────────────────────────────────────────────────
+
+  /// ## insertProcessNote
+  ///
+  /// **SOAP Method**: `InsertIllegalProcessNote`
+  /// **SOAPAction**: `http://tempuri.org/IBillingWcfsrv/InsertIllegalProcessNote`
+  ///
+  /// **Description**: Commits the illegal process note to the server. The
+  /// [data] string (concatenated semicolon-separated fields) is RSA-encrypted
+  /// before being sent as the `data` property. The [base64Image] is sent
+  /// as the `image` property.
+  @override
+  Future<String> insertProcessNote({
+    required String data,
+    required String? base64Image,
+  }) async {
+    final encrypted = RsaHelper.encrypt(data);
+
+    return _soap.call(
+      methodName: AppConstants.insertProcessNoteMethodName,
+      soapAction: AppConstants.insertProcessNoteSoapAction,
+      bodyProperties: {
+        'data': encrypted,
+        'image': base64Image ?? '',
+      },
+    );
+  }
+
+  // ── getHelperWorkshops ─────────────────────────────────────────────────────
+
+  /// ## getHelperWorkshops
+  ///
+  /// **SOAP Method**: `GetIDECO_WorkshopMF`
+  ///
+  /// **Description**: Fetches the list of helper workshops.
+  /// **Query**: `wrk_type:8,office_id:0,minor:0,datatype:3`
+  @override
+  Future<List<EngineerModel>> getHelperWorkshops() async {
+    const query = 'wrk_type:8,office_id:0,minor:0,datatype:3';
+    final encrypted = RsaHelper.encrypt(query);
+
+    final xmlBody = await _soap.call(
+      methodName: AppConstants.helperWorkshopMethodName,
+      soapAction: AppConstants.helperWorkshopSoapAction,
+      bodyProperties: {'data': encrypted},
+    );
+
+    // Reusing EngineerModel for simple label/value pairs (Workshop ID / Name)
+    return EngineerModel.fromXmlList(xmlBody,
+        idTag: 'WRK_NO', nameTag: 'WRK_NAME');
   }
 }

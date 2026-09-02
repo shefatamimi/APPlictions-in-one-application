@@ -59,4 +59,57 @@ class InspectionInquiryRepositoryImpl implements InspectionInquiryRepository {
       return Left(NetworkFailure(e.toString()));
     }
   }
+
+  // ── insertProcessNote ──────────────────────────────────────────────────────
+
+  @override
+  Future<Either<Failure, String>> insertProcessNote({
+    required String empNo,
+    required String workshopNum,
+    required String pid,
+    required String stampNum,
+    required String notes,
+    required String engName,
+    required String engNumber,
+    required String helperWorkshopNum,
+    required String driver,
+    required String? base64Image,
+  }) async {
+    try {
+      // Replicating the Java string concatenation logic:
+      // "EmpNum:3040;WORKSHOP_NUMBER:416;PID:123;STAMP_NUM:S1;ILL_NOTES:notes;ENG_EMP_NAME:name;..."
+      final data = 'EmpNum:$empNo;'
+          'WORKSHOP_NUMBER:$workshopNum;'
+          'PID:$pid;'
+          'STAMP_NUM:$stampNum;'
+          'ILL_NOTES:$notes;'
+          'ENG_EMP_NAME:$engName;'
+          'ENG_EMP_NUMBER:$engNumber;'
+          'HelperWrkShopNum:$helperWorkshopNum;'
+          'Driver:$driver;';
+
+      final result = await _remote.insertProcessNote(
+        data: data,
+        base64Image: base64Image,
+      );
+
+      return Right(result);
+    } on Exception catch (e) {
+      return Left(ServerFailure(e.toString()));
+    } catch (e) {
+      return Left(NetworkFailure(e.toString()));
+    }
+  }
+
+  // ── getHelperWorkshops ─────────────────────────────────────────────────────
+
+  @override
+  Future<Either<Failure, List<EngineerEntity>>> getHelperWorkshops() async {
+    try {
+      final workshops = await _remote.getHelperWorkshops();
+      return Right(workshops);
+    } on Exception catch (e) {
+      return Left(NetworkFailure(e.toString()));
+    }
+  }
 }

@@ -1,93 +1,128 @@
 /// # InspectionInquiryCubit
 ///
 /// Cubit managing the state of the inspection process note inquiry screen.
-///
-/// ## Responsibilities
-/// - Loads engineer list for the autocomplete on screen entry.
-/// - Dispatches operation lookup on form submit.
-/// - Handles clearing results for a new search.
 library;
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../domain/entities/engineer_entity.dart';
 import '../../domain/usecases/get_engineers_usecase.dart';
+import '../../domain/usecases/get_helper_workshops_usecase.dart';
 import '../../domain/usecases/get_operation_usecase.dart';
+import '../../domain/usecases/insert_process_note_usecase.dart';
 import 'inspection_inquiry_state.dart';
 
 class InspectionInquiryCubit extends Cubit<InspectionInquiryState> {
   final GetOperationUseCase _getOperation;
   final GetEngineersUseCase _getEngineers;
+  final GetHelperWorkshopsUseCase _getHelperWorkshops;
+  final InsertProcessNoteUseCase _insertProcessNote;
 
   List<EngineerEntity> _engineers = [];
+  List<EngineerEntity> _workshops = [];
 
   InspectionInquiryCubit({
     required GetOperationUseCase getOperationUseCase,
     required GetEngineersUseCase getEngineersUseCase,
+    required GetHelperWorkshopsUseCase getHelperWorkshopsUseCase,
+    required InsertProcessNoteUseCase insertProcessNoteUseCase,
   })  : _getOperation = getOperationUseCase,
         _getEngineers = getEngineersUseCase,
+        _getHelperWorkshops = getHelperWorkshopsUseCase,
+        _insertProcessNote = insertProcessNoteUseCase,
         super(const InspectionInquiryInitial());
 
-  // ── loadEngineers ──────────────────────────────────────────────────────────
+  // ── loadFormData ───────────────────────────────────────────────────────────
 
-  /// ## loadEngineers
-  ///
-  /// **SOAP Method**: `GetGenericsDataTable` (DataType:73, Major:721)
-  ///
-  /// **Description**: Fetches the engineer list on screen init so the
-  /// autocomplete dropdown is populated for the process note form.
-  ///
-  /// **Emits**: [EngineersLoaded] on success; silently emits [EngineersLoaded]
-  /// with empty list on error (non-blocking).
-  Future<void> loadEngineers() async {
-    final result = await _getEngineers();
-    result.fold(
-      (_) {
-        _engineers = [];
-        emit(const EngineersLoaded([]));
-      },
-      (engineers) {
-        _engineers = engineers;
-        emit(EngineersLoaded(engineers));
-      },
+  /// Fetches engineers and workshops for the form.
+  Future<void> loadFormData() async {
+    final results = await Future.wait([
+      _getEngineers(),
+      _getHelperWorkshops(),
+    ]);
+
+    results[0].fold(
+      (_) => _engineers = [],
+      (engineers) => _engineers = engineers as List<EngineerEntity>,
     );
+
+    results[1].fold(
+      (_) => _workshops = [],
+      (workshops) => _workshops = workshops as List<EngineerEntity>,
+    );
+
+    emit(FormReady(engineers: _engineers, helperWorkshops: _workshops));
   }
 
   // ── searchOperation ────────────────────────────────────────────────────────
 
-  /// ## searchOperation
-  ///
-  /// **SOAP chain**: `GetWFTRANSACTIONSBiIllegalProcessNote` (DataType:2)
-  ///                 → `GetBiIllegalProcessNote` (DataType:1)
-  ///
-  /// **Description**: Looks up the illegal inspection process operation
-  /// identified by [pid] and emits the result.
-  ///
-  /// **Parameters**:
-  /// - [pid] — Numeric operation identifier string.
-  ///
-  /// **Emits**: [InspectionInquiryLoading] →
-  /// [OperationLoaded] | [InspectionInquiryFailure].
   Future<void> searchOperation(String pid) async {
     if (pid.trim().isEmpty) return;
-    emit(const InspectionInquiryLoading());
+    emit(InspectionInquiryLoading(
+        engineers: _engineers, helperWorkshops: _workshops));
 
     final result = await _getOperation(pid.trim());
     result.fold(
       (failure) => emit(InspectionInquiryFailure(
-          message: failure.message, engineers: _engineers)),
-      (operation) =>
-          emit(OperationLoaded(operation: operation, engineers: _engineers)),
+        message: failure.message,
+        engineers: _engineers,
+        helperWorkshops: _workshops,
+      )),
+      (operation) => emit(OperationLoaded(
+        operation: operation,
+        engineers: _engineers,
+        helperWorkshops: _workshops,
+      )),
+    );
+  }
+
+  // ── submitProcessNote ──────────────────────────────────────────────────────
+
+  Future<void> submitProcessNote({
+    required String empNo,
+    required String workshopNum,
+    required String pid,
+    required String stampNum,
+    required String notes,
+    required String engName,
+    required String engNumber,
+    required String helperWorkshopNum,
+    required String driver,
+    required String? base64Image,
+  }) async {
+    emit(InspectionSubmitting(
+        engineers: _engineers, helperWorkshops: _workshops));
+
+    final result = await _insertProcessNote(
+      empNo: empNo,
+      workshopNum: workshopNum,
+      pid: pid,
+      stampNum: stampNum,
+      notes: notes,
+      engName: engName,
+      engNumber: engNumber,
+      helperWorkshopNum: helperWorkshopNum,
+      driver: driver,
+      base64Image: base64Image,
+    );
+
+    result.fold(
+      (failure) => emit(InspectionInquiryFailure(
+        message: failure.message,
+        engineers: _engineers,
+        helperWorkshops: _workshops,
+      )),
+      (message) => emit(InspectionSuccess(
+        message: message,
+        engineers: _engineers,
+        helperWorkshops: _workshops,
+      )),
     );
   }
 
   // ── clearSearch ────────────────────────────────────────────────────────────
 
-  /// ## clearSearch
-  ///
-  /// **Description**: Resets the screen to its ready state so a new operation
-  /// number can be entered. Called when the user taps "مسح".
   void clearSearch() {
-    emit(EngineersLoaded(_engineers));
+    emit(FormReady(engineers: _engineers, helperWorkshops: _workshops));
   }
 }

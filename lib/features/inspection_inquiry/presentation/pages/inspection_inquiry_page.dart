@@ -1,13 +1,15 @@
-/// # InspectionInquiryPage
-library;
-
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
-import '../../../../../injection_container.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:ideco_platform/core/theme/app_colors.dart';
+import 'package:ideco_platform/core/widgets/app_dialogs.dart';
+import 'package:ideco_platform/platform/domain/entities/employee.dart';
+import 'package:ideco_platform/platform/presentation/cubit/platform_auth_cubit.dart';
+import 'package:ideco_platform/platform/presentation/cubit/platform_auth_state.dart';
+import 'package:ideco_platform/injection_container.dart';
 import '../../domain/entities/engineer_entity.dart';
-import '../../domain/entities/operation_entity.dart';
 import '../cubit/inspection_inquiry_cubit.dart';
 import '../cubit/inspection_inquiry_state.dart';
 
@@ -16,8 +18,8 @@ class InspectionInquiryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => sl<InspectionInquiryCubit>()..loadEngineers(),
+    return BlocProvider<InspectionInquiryCubit>(
+      create: (context) => sl<InspectionInquiryCubit>()..loadFormData(),
       child: const _InspectionInquiryView(),
     );
   }
@@ -31,22 +33,15 @@ class _InspectionInquiryView extends StatefulWidget {
 }
 
 class _InspectionInquiryViewState extends State<_InspectionInquiryView> {
-  static const _primaryBlue = Color(0xFF0284C7);
-  static const _darkText = Color(0xFF0F172A);
-  static const _labelGrey = Color(0xFF475569);
-  static const _bgGray = Color(0xFFF8FAFC);
-
   final _pidCtrl = TextEditingController();
   final _stampCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   final _driverCtrl = TextEditingController();
-  final _helperWorkshopCtrl = TextEditingController();
-  final _engSearchCtrl = TextEditingController();
-
-  List<EngineerEntity> _allEngineers = [];
-  List<EngineerEntity> _filteredEngineers = [];
+  
   EngineerEntity? _selectedEngineer;
-  bool _hasResult = false;
+  EngineerEntity? _selectedHelper;
+  File? _image;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void dispose() {
@@ -54,434 +49,274 @@ class _InspectionInquiryViewState extends State<_InspectionInquiryView> {
     _stampCtrl.dispose();
     _notesCtrl.dispose();
     _driverCtrl.dispose();
-    _helperWorkshopCtrl.dispose();
-    _engSearchCtrl.dispose();
     super.dispose();
   }
 
-  void _onEngSearch(String value) {
-    setState(() {
-      _filteredEngineers = _allEngineers
-          .where((e) => e.name.contains(value) || e.empNumber.contains(value))
-          .take(8)
-          .toList();
-    });
-  }
-
-  void _selectEngineer(EngineerEntity eng) {
-    _engSearchCtrl.text = '${eng.name} (${eng.empNumber})';
-    setState(() {
-      _selectedEngineer = eng;
-      _filteredEngineers = [];
-    });
-    FocusScope.of(context).unfocus();
-  }
-
-  void _onSearch(BuildContext ctx) {
-    if (_pidCtrl.text.trim().isEmpty) {
-      _snack(ctx, 'الرجاء إدخال رقم العملية');
-      return;
+  Future<void> _takePhoto() async {
+    final XFile? photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 50);
+    if (photo != null) {
+      setState(() => _image = File(photo.path));
     }
-    ctx.read<InspectionInquiryCubit>().searchOperation(_pidCtrl.text.trim());
   }
 
-  void _onClear(BuildContext ctx) {
-    _pidCtrl.clear();
-    _stampCtrl.clear();
-    _notesCtrl.clear();
-    _driverCtrl.clear();
-    _helperWorkshopCtrl.clear();
-    _engSearchCtrl.clear();
-    setState(() {
-      _selectedEngineer = null;
-      _hasResult = false;
-      _filteredEngineers = [];
-    });
-    ctx.read<InspectionInquiryCubit>().clearSearch();
-  }
-
-  void _snack(BuildContext ctx, String msg) {
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      SnackBar(
-        content: Text(msg,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-                fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
-        backgroundColor: _primaryBlue,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-
-  void _onSave(BuildContext ctx) {
+  void _handleSave(Employee currentEmployee, OperationLoaded state) async {
     if (_selectedEngineer == null) {
-      _snack(ctx, 'الرجاء اختيار المهندس');
+      showAppSnack(context, 'يرجى اختيار المهندس', isError: true);
       return;
     }
-    if (_stampCtrl.text.trim().isEmpty) {
-      _snack(ctx, 'الرجاء إدخال رقم الختم');
-      return;
-    }
-    _snack(ctx, 'قيد التطوير — حفظ البيانات');
+    
+    final base64Image = _image != null 
+        ? base64Encode(await _image!.readAsBytes())
+        : null;
+
+    if (!mounted) return;
+    
+    context.read<InspectionInquiryCubit>().submitProcessNote(
+      empNo: currentEmployee.employeeNumber,
+      workshopNum: currentEmployee.workshopNumber,
+      pid: state.operation.pid,
+      stampNum: _stampCtrl.text.trim(),
+      notes: _notesCtrl.text.trim(),
+      engName: _selectedEngineer!.name,
+      engNumber: _selectedEngineer!.empNumber,
+      helperWorkshopNum: _selectedHelper?.empNumber ?? '',
+      driver: _driverCtrl.text.trim(),
+      base64Image: base64Image,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<InspectionInquiryCubit, InspectionInquiryState>(
-      listener: (ctx, state) {
-        if (state is OperationLoaded) {
-          _allEngineers = state.engineers;
-          if (!state.operation.isFound) {
-            _snack(ctx, 'لا يوجد معاملة بهذا الرقم');
-          } else {
-            setState(() => _hasResult = true);
-          }
-        }
-        if (state is EngineersLoaded) _allEngineers = state.engineers;
-        if (state is InspectionInquiryFailure) {
-          _allEngineers = state.engineers;
-          _snack(ctx, state.message);
+    return BlocListener<InspectionInquiryCubit, InspectionInquiryState>(
+      listener: (context, state) {
+        if (state is InspectionSuccess) {
+          showAppMessage(context, message: state.message, title: 'نجاح');
+          _stampCtrl.clear();
+          _notesCtrl.clear();
+          _driverCtrl.clear();
+          setState(() {
+            _image = null;
+            _selectedEngineer = null;
+            _selectedHelper = null;
+          });
         }
       },
-      builder: (ctx, state) {
-        final isLoading = state is InspectionInquiryLoading;
-        final customerOp = state is OperationLoaded ? state.operation : null;
-
-        return Scaffold(
-          backgroundColor: _bgGray,
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 1,
-            surfaceTintColor: Colors.white,
-            systemOverlayStyle: SystemUiOverlayStyle.dark,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: _darkText, size: 20),
-              onPressed: () => Navigator.of(ctx).pop(),
-            ),
-            title: const Text('تنفيذ معاملة تفتيش',
-                style: TextStyle(
-                    fontFamily: 'AdFont',
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: _darkText)),
-            centerTitle: true,
-          ),
-          body: Column(
-            children: [
-              _buildSearchSection(ctx, isLoading),
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                  child: Column(
-                    children: [
-                      if (isLoading)
-                        _buildSimpleLoader()
-                      else if (customerOp != null && customerOp.isFound) ...[
-                        _buildBasicDataSection(customerOp),
-                        const SizedBox(height: 20),
-                        if (customerOp.isAssigned)
-                          _buildSummaryView(ctx, customerOp)
-                        else
-                          _buildExecutionForm(ctx, customerOp),
-                      ] else if (!_hasResult)
-                        _buildWelcomeState(),
-                    ],
-                  ),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('تنفيذ معاملة التفتيش'),
+          backgroundColor: AppColors.primary,
+        ),
+        body: Directionality(
+          textDirection: TextDirection.rtl,
+          child: BlocBuilder<InspectionInquiryCubit, InspectionInquiryState>(
+            builder: (context, state) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildInquirySection(state),
+                    if (state is OperationLoaded || state is InspectionSubmitting || state is InspectionSuccess) 
+                      _buildExecutionForm(state),
+                  ],
                 ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSearchSection(BuildContext ctx, bool isLoading) {
-    return Container(
-      width: double.infinity,
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('رقم العملية المراد تفتيشها',
-              style: TextStyle(
-                  fontFamily: 'AdFont',
-                  fontSize: 13,
-                  color: _labelGrey,
-                  fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  height: 52,
-                  decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFCBD5E1))),
-                  child: TextField(
-                    controller: _pidCtrl,
-                    enabled: !isLoading && !_hasResult,
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontFamily: 'AdFont',
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: _darkText),
-                    decoration: const InputDecoration(
-                        hintText: 'أدخل الرقم هنا',
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                height: 52,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          _hasResult ? const Color(0xFF94A3B8) : _primaryBlue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12))),
-                  onPressed: isLoading
-                      ? null
-                      : () => _hasResult ? _onClear(ctx) : _onSearch(ctx),
-                  child: Text(_hasResult ? 'مسح' : 'استعلام',
-                      style: const TextStyle(
-                          fontFamily: 'AdFont',
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16)),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBasicDataSection(OperationEntity op) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0))),
-      child: Column(
-        children: [
-          _simpleInfoRow('اسم المهندس', op.engineerName),
-          _simpleInfoRow('اسم الورشة', op.workshopName),
-          _simpleInfoRow('البلدة', op.city),
-          _simpleInfoRow('رقم الاشتراك', op.subscriptionNum, isLast: true),
-        ],
-      ),
-    );
-  }
-
-  Widget _simpleInfoRow(String label, String value, {bool isLast = false}) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
-      child: Row(
-        children: [
-          SizedBox(
-              width: 100,
-              child: Text(label,
-                  style: const TextStyle(
-                      fontFamily: 'AdFont', fontSize: 13, color: _labelGrey))),
-          const SizedBox(width: 12),
-          Expanded(
-              child: Text(value.isEmpty ? '—' : value,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                      fontFamily: 'AdFont',
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: _darkText))),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExecutionForm(BuildContext ctx, OperationEntity op) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-            padding: EdgeInsets.only(right: 4, bottom: 16),
-            child: Text('تكملة بيانات التفتيش',
-                style: TextStyle(
-                    fontFamily: 'AdFont',
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _darkText))),
-        _inputLabel('المهندس المسؤول عن التنفيذ'),
-        _buildEngAutocomplete(),
-        const SizedBox(height: 16),
-        _inputLabel('مساعد الورشة'),
-        _cleanField(_helperWorkshopCtrl, 'اسم المساعد'),
-        const SizedBox(height: 16),
-        _inputLabel('رقم الختم المستعمل'),
-        _cleanField(_stampCtrl, 'أدخل رقم الختم', type: TextInputType.number),
-        const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          height: 56,
-          child: ElevatedButton(
-            onPressed: () => _onSave(ctx),
-            style: ElevatedButton.styleFrom(
-                backgroundColor: _primaryBlue,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16))),
-            child: const Text('حفظ البيانات وإرسال',
-                style: TextStyle(
-                    fontFamily: 'AdFont',
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold)),
+              );
+            },
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildInquirySection(InspectionInquiryState state) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            TextField(
+              controller: _pidCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'رقم العملية',
+                prefixIcon: Icon(Icons.numbers),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: state is InspectionInquiryLoading 
+                  ? null 
+                  : () => context.read<InspectionInquiryCubit>().searchOperation(_pidCtrl.text),
+              icon: state is InspectionInquiryLoading 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.search),
+              label: const Text('استعلام عن البيانات'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExecutionForm(InspectionInquiryState state) {
+    final operation = state is OperationLoaded ? state.operation : null;
+    if (operation == null && state is! InspectionSubmitting && state is! InspectionSuccess) return const SizedBox();
+
+    return Column(
+      children: [
+        const SizedBox(height: 16),
+        if (operation != null) _buildOperationInfo(operation),
+        const SizedBox(height: 16),
+        _buildMainForm(state),
       ],
     );
   }
 
-  Widget _buildSummaryView(BuildContext ctx, OperationEntity op) {
+  Widget _buildOperationInfo(var operation) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFDCFCE7), width: 1.5)),
+        color: AppColors.primarySurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Row(children: [
-            Icon(Icons.check_circle_rounded, color: Colors.green, size: 22),
-            SizedBox(width: 8),
-            Text('تم تنفيذ المعاملة مسبقاً',
-                style: TextStyle(
-                    fontFamily: 'AdFont',
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: Colors.green))
-          ]),
-          const SizedBox(height: 20),
-          _simpleInfoRow('رقم الختم', op.stampNumber),
-          _simpleInfoRow('تاريخ التنفيذ', op.date),
-          const SizedBox(height: 24),
-          SizedBox(
-            height: 50,
-            child: OutlinedButton(
-              onPressed: () => Navigator.of(ctx)
-                  .pushNamed('/inspection-movement', arguments: op),
-              style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: _primaryBlue, width: 1.5),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12))),
-              child: const Text('عرض معلومات حركة التفتيش الكاملة',
-                  style: TextStyle(
-                      fontFamily: 'AdFont',
-                      fontWeight: FontWeight.bold,
-                      color: _primaryBlue)),
-            ),
-          ),
+          _infoRow('المدينة:', operation.city),
+          const Divider(),
+          _infoRow('رقم الاشتراك:', operation.subscriptionNum),
         ],
       ),
     );
   }
 
-  Widget _inputLabel(String text) => Padding(
-      padding: const EdgeInsets.only(bottom: 8, right: 4),
-      child: Text(text,
-          style: const TextStyle(
-              fontFamily: 'AdFont',
-              fontSize: 13,
-              color: _darkText,
-              fontWeight: FontWeight.bold)));
+  Widget _buildMainForm(InspectionInquiryState state) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('بيانات التنفيذ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 20),
+            
+            // المهندس
+            Autocomplete<EngineerEntity>(
+              displayStringForOption: (e) => e.name,
+              optionsBuilder: (textValue) => state.engineers
+                  .where((e) => e.name.contains(textValue.text)),
+              onSelected: (e) => setState(() => _selectedEngineer = e),
+              fieldViewBuilder: (ctx, ctrl, focus, onFieldSubmitted) => TextField(
+                controller: ctrl,
+                focusNode: focus,
+                decoration: const InputDecoration(labelText: 'اسم المهندس', prefixIcon: Icon(Icons.person)),
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // مساعد الورشة
+            Autocomplete<EngineerEntity>(
+              displayStringForOption: (e) => e.name,
+              optionsBuilder: (textValue) => state.helperWorkshops
+                  .where((e) => e.name.contains(textValue.text)),
+              onSelected: (e) => setState(() => _selectedHelper = e),
+              fieldViewBuilder: (ctx, ctrl, focus, onFieldSubmitted) => TextField(
+                controller: ctrl,
+                focusNode: focus,
+                decoration: const InputDecoration(labelText: 'مساعد الورشة (اختياري)', prefixIcon: Icon(Icons.group)),
+              ),
+            ),
 
-  Widget _cleanField(TextEditingController ctrl, String hint,
-      {TextInputType type = TextInputType.text, int maxLines = 1}) {
-    return TextField(
-      controller: ctrl,
-      keyboardType: type,
-      maxLines: maxLines,
-      textAlign: TextAlign.right,
-      style: const TextStyle(
-          fontFamily: 'AdFont',
-          fontSize: 15,
-          color: _darkText,
-          fontWeight: FontWeight.w600),
-      decoration: InputDecoration(
-          hintText: hint,
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFCBD5E1)))),
-    );
-  }
+            const SizedBox(height: 16),
+            
+            TextField(
+              controller: _driverCtrl,
+              decoration: const InputDecoration(labelText: 'اسم السائق', prefixIcon: Icon(Icons.drive_eta)),
+            ),
 
-  Widget _buildEngAutocomplete() {
-    return Column(
-      children: [
-        _cleanField(_engSearchCtrl, 'ابحث بالاسم أو الرقم الوظيفي'),
-        if (_filteredEngineers.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFCBD5E1))),
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: _filteredEngineers.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (_, i) {
-                final eng = _filteredEngineers[i];
-                return ListTile(
-                    title: Text(eng.name,
-                        style: const TextStyle(
-                            fontFamily: 'AdFont',
-                            fontSize: 14,
-                            color: _darkText,
-                            fontWeight: FontWeight.bold)),
-                    subtitle: Text(eng.empNumber),
-                    onTap: () => _selectEngineer(eng));
+            const SizedBox(height: 16),
+
+            TextField(
+              controller: _stampCtrl,
+              decoration: const InputDecoration(labelText: 'رقم الختم', prefixIcon: Icon(Icons.confirmation_number)),
+            ),
+
+            const SizedBox(height: 16),
+
+            TextField(
+              controller: _notesCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'الملاحظات', prefixIcon: Icon(Icons.note)),
+            ),
+
+            const SizedBox(height: 24),
+
+            // الصورة
+            Center(
+              child: Column(
+                children: [
+                  if (_image != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(_image!, height: 150, width: 200, fit: BoxFit.cover),
+                    )
+                  else
+                    Container(
+                      height: 150, width: 200,
+                      decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.camera_alt, size: 50, color: Colors.grey),
+                    ),
+                  TextButton.icon(
+                    onPressed: _takePhoto,
+                    icon: const Icon(Icons.add_a_photo),
+                    label: const Text('التقاط صورة المعاملة'),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // زر الحفظ
+            BlocBuilder<PlatformAuthCubit, PlatformAuthState>(
+              builder: (authCtx, authState) {
+                if (authState is! PlatformAuthAuthenticated) return const SizedBox();
+                
+                return ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    minimumSize: const Size(double.infinity, 56),
+                  ),
+                  onPressed: (state is InspectionSubmitting || state is! OperationLoaded)
+                      ? null 
+                      : () => _handleSave(authState.session.employee, state),
+                  child: state is InspectionSubmitting
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('حفظ المعاملة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                );
               },
             ),
-          ),
-      ],
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildSimpleLoader() => const Center(
-      child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 60),
-          child:
-              CircularProgressIndicator(color: _primaryBlue, strokeWidth: 4)));
-
-  Widget _buildWelcomeState() => Center(
-      child: Padding(
-          padding: const EdgeInsets.only(top: 80),
-          child: Column(children: [
-            const Icon(Icons.search_rounded, size: 64, color: Colors.grey),
-            const SizedBox(height: 24),
-            const Text('أدخل رقم العملية لعرض البيانات',
-                style: TextStyle(
-                    fontFamily: 'AdFont',
-                    color: _labelGrey,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold))
-          ])));
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
 }
