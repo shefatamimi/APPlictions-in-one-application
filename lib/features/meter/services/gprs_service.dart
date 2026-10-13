@@ -1,0 +1,105 @@
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ideco_platform/features/direct_current/services/direct_current_service.dart';
+
+class GPRSService {
+  static const MethodChannel _channel = MethodChannel('com.ideco.sync/data');
+
+  /// تفعيل GPRS عبر البروب وتوثيق العملية في السيرفر
+  static Future<String> activateGPRS({
+    required String bluetoothAddress,
+    required String bluetoothName,
+    required Map<String, String> meterInfo,
+  }) async {
+    try {
+      // 1. استدعاء الكود الأصلي (Native) لإرسال أوامر Hex للعداد
+      final String result = await _channel.invokeMethod('enableGPRS', {
+        'address': bluetoothAddress,
+        'name': bluetoothName,
+      });
+
+      if (result == "تم تفعيل GPRS بنجاح") {
+        // 2. توثيق العملية في السيرفر (ProbeGPRSConnTrans)
+        final prefs = await SharedPreferences.getInstance();
+        final empNo = prefs.getString('EMP_NO') ?? "";
+        final empName = prefs.getString('ORACLE_USER') ?? "";
+        
+        final serverResult = await DirectCurrentService.probeGPRSConnTrans(
+          meterNum: meterInfo['display_meter'] ?? "",
+          workshopId: empNo,
+          workshopName: empName,
+          userName: empName,
+          cityId: meterInfo['city_id'] ?? "0",
+          custId: meterInfo['cust_id'] ?? "0",
+        );
+
+        return "تم التفعيل والتوثيق: $serverResult";
+      } else {
+        return result;
+      }
+    } on PlatformException catch (e) {
+      return "خطأ في الاتصال بالبلوتوث: ${e.message}";
+    } catch (e) {
+      return "خطأ غير متوقع: $e";
+    }
+  }
+
+  /// الاستعلام عن حالة العداد (Connected / Disconnected)
+  static Future<String> checkMeterStatus({
+    required String bluetoothAddress,
+    required String bluetoothName,
+  }) async {
+    try {
+      final String status = await _channel.invokeMethod('checkMeterStatus', {
+        'address': bluetoothAddress,
+        'name': bluetoothName,
+      });
+      return status;
+    } on PlatformException catch (e) {
+      return "Error: ${e.message}";
+    } catch (e) {
+      return "Error: $e";
+    }
+  }
+
+  /// قراءة إعدادات الشبكة الحالية من العداد عبر البروب
+  static Future<String> readNetworkConfig({
+    required String bluetoothAddress,
+    required String bluetoothName,
+  }) async {
+    try {
+      final String result = await _channel.invokeMethod('readNetworkConfig', {
+        'address': bluetoothAddress,
+        'name': bluetoothName,
+      });
+      return result;
+    } on PlatformException catch (e) {
+      return "ERROR: ${e.message}";
+    } catch (e) {
+      return "ERROR: $e";
+    }
+  }
+
+  /// كتابة (برمجة) إعدادات الشبكة الجديدة للعداد عبر البروب
+  static Future<String> writeNetworkConfig({
+    required String bluetoothAddress,
+    required String bluetoothName,
+    required String ip,
+    required String port,
+    required String apn,
+  }) async {
+    try {
+      final String configString = "$ip:$port:$apn";
+      final String result = await _channel.invokeMethod('writeNetworkConfig', {
+        'address': bluetoothAddress,
+        'name': bluetoothName,
+        'config': configString,
+      });
+      return result;
+    } on PlatformException catch (e) {
+      return "ERROR: ${e.message}";
+    } catch (e) {
+      return "ERROR: $e";
+    }
+  }
+}
