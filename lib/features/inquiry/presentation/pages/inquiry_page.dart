@@ -177,6 +177,7 @@ class _InquiryViewState extends State<_InquiryView> {
               Expanded(
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
                   child: Column(
                     children: [
                       if (!_hasResult) ...[
@@ -186,11 +187,12 @@ class _InquiryViewState extends State<_InquiryView> {
                         _buildSearchForm(ctx, isLoading),
                       ],
                       _buildResultsSection(ctx, state, customer, isLoading),
+                      const SizedBox(height: 24),
+                      _buildActionButtons(ctx, state),
                     ],
                   ),
                 ),
               ),
-              _buildActionButtons(ctx, state),
             ],
           ),
         );
@@ -654,16 +656,16 @@ class _InquiryViewState extends State<_InquiryView> {
     // وضعية حركات التفتيش (التصميم الشبكي الجديد 2x2 + مزامنة)
     if (m == InquiryMode.inspectionMovements) {
       return Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(24), topRight: Radius.circular(24)),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 15,
-                offset: const Offset(0, -4))
+                offset: const Offset(0, 5))
           ],
         ),
         child: Column(
@@ -677,7 +679,7 @@ class _InquiryViewState extends State<_InquiryView> {
               crossAxisSpacing: 10,
               childAspectRatio: 2.8,
               children: [
-                _gridActionBtn('إدخال زيارة تفتيش', Icons.visibility_rounded,
+                _gridActionBtn('إدخال زيارة', Icons.visibility_rounded,
                     isEnabled, const Color(0xFF0EA5E9), () {
                   Navigator.of(ctx)
                       .pushNamed('/inspection-movement', arguments: customer);
@@ -687,18 +689,19 @@ class _InquiryViewState extends State<_InquiryView> {
                   Navigator.of(ctx)
                       .pushNamed('/inspection-movement', arguments: customer);
                 }),
-                _gridActionBtn('ادخال حركة التفتيش', Icons.engineering_rounded,
-                    isEnabled, const Color(0xFF0284C7), () {
+                _gridActionBtn('حركة وصل', Icons.link,
+                    isEnabled, const Color(0xFF059669), () {
                   Navigator.of(ctx)
                       .pushNamed('/inspection-movement', arguments: customer);
                 }),
-                // زر حركة فصل ووصل (داخل حركات التفتيش) -> لا ينقل لمكان حالياً
-                _gridActionBtn(
-                    'حركة فصل ووصل',
-                    Icons.electrical_services_rounded,
-                    isEnabled,
-                    const Color(0xFF00897B), () {
-                  _showSimpleSnack(ctx, 'قيد التطوير', _primaryBlue);
+                _gridActionBtn('حركة فصل', Icons.link_off,
+                    isEnabled, const Color(0xFFE11D48), () {
+                  Navigator.of(ctx)
+                      .pushNamed('/inspection-movement', arguments: customer);
+                }),
+                _gridActionBtn('إدخال تقرير تنفيذ', Icons.assignment_turned_in_rounded,
+                    isEnabled, const Color(0xFF7C3AED), () {
+                  Navigator.of(ctx).pushNamed('/inspection-inquiry');
                 }),
               ],
             ),
