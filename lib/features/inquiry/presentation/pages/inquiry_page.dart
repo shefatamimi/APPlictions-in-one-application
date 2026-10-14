@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:ideco_platform/injection_container.dart';
+import 'package:ideco_platform/features/billing/screens/view_customer_bill_screen.dart';
 import 'package:ideco_platform/features/inquiry/domain/entities/city_entity.dart';
 import 'package:ideco_platform/features/inquiry/domain/entities/customer_info_entity.dart';
 import 'package:ideco_platform/features/inquiry/presentation/cubit/inquiry_cubit.dart';
@@ -570,16 +571,34 @@ class _InquiryViewState extends State<_InquiryView> {
                   _simpleRow('نوع العداد', c.isSmart ? 'ذكـي' : 'عادي'),
                   _simpleRow('الفاز', c.phase),
                   _simpleRow('العنوان', c.address),
+                  if (c.subscriptionType.isNotEmpty)
+                    _simpleRow('نوع الاشتراك', c.subscriptionType),
+                  if (c.supportPhone.isNotEmpty)
+                    _simpleRow('هاتف المدعوم', c.supportPhone),
+                  if (c.regionCode.isNotEmpty)
+                    _simpleRow('رقم المنطقة', c.regionCode),
                   if (c.readerName.isNotEmpty)
                     _simpleRow('القارئ', c.readerName),
                   if (c.lastReading.isNotEmpty)
                     _simpleRow('آخر قراءة', c.lastReading),
+                  if (c.lastReadingDate.isNotEmpty)
+                    _simpleRow('تاريخ آخر قراءة', c.lastReadingDate),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton(
-                      onPressed: () => _showSimpleSnack(
-                          ctx, 'الفواتير قيد التطوير', _primaryBlue),
+                      onPressed: () {
+                        Navigator.of(ctx).push(
+                          MaterialPageRoute(
+                            builder: (_) => ViewCustomerBillScreen(
+                              meterInfo: {
+                                'MTR_CITY': c.cityCode,
+                                'MTR_NUM': c.subscriptionSerial,
+                              },
+                            ),
+                          ),
+                        );
+                      },
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: _accentBlue),
                         shape: RoundedRectangleBorder(

@@ -5,6 +5,7 @@
 library;
 
 import 'package:dartz/dartz.dart';
+import 'dart:developer' as dev;
 
 import '../../../../core/errors/failures.dart';
 import '../../domain/entities/city_entity.dart';
@@ -36,9 +37,10 @@ class InquiryRepositoryImpl implements InquiryRepository {
       final sub10 = model.formattedSubscription;
       try {
         final extraXml = await _remote.fetchExtraInfo(sub10);
+        dev.log('[InquiryRepo] extraXml response: $extraXml', name: 'Inquiry');
         model = model.withExtraInfo(extraXml);
-      } catch (_) {
-        // Non-fatal — continue without extra info
+      } catch (e) {
+        dev.log('[InquiryRepo] fetchExtraInfo error: $e', name: 'Inquiry');
       }
 
       // Step 3: check for illegal notification

@@ -8,9 +8,9 @@
 ///    Action: `GetCustomerBillingInfoEnc`
 ///    Query: `DataType:31;Where:;mtrnum: and mtr.MTR_M_NUM = '{meterNum}'`
 ///    Fields: CTYM_NAME, CUSM_NAME, MTR_NUM, MTR_CITY, SMART, KIND, MODEL,
-///            ADDRESS, MTR_M_NUM, FAZ, C_KIND, POS_X, POS_Y, MOBILE_NO,
+///            ADDRESS, MTR_M_NUM, FAZ, C_KIND, POS_X, POS_Y, REN, MOBILE_NO,
 ///            REGM_CODE, RDRM_NAME, CUSM_COSTTIME_FLAG,
-///            CUSM_REN_LREAD_PARTIAL_PEAK … (8 ToU fields)
+///            CUSM_PREAD_PEAK_TIME, CUSM_PREAD_OUT_PEAK_TIME, etc. (ToU fields)
 ///
 /// 2. **DataType:13** — Extra subscription info
 ///    Action: `GetCustomerBillingInfoEnc`
@@ -47,6 +47,7 @@ class CustomerInfoModel extends CustomerInfoEntity {
     super.posX,
     super.posY,
     required super.hasTimeOfUse,
+    required super.isRenewable,
     required super.timeReadings,
     super.hasIllegalNotification,
   });
@@ -86,16 +87,19 @@ class CustomerInfoModel extends CustomerInfoEntity {
       final costTimeFlag = _txt(row, 'CUSM_COSTTIME_FLAG');
       final hasToU = costTimeFlag == '1';
 
+      final ren = _txt(row, 'REN');
+      final isRenewable = ren == '1';
+
       final List<String> timeReadings = hasToU
           ? [
               _txt(row, 'CUSM_PREAD_PEAK_TIME'),
-              _txt(row, 'CUSM_PREAD_OFFPEAK_TIME'),
-              _txt(row, 'CUSM_REN_LREAD_PARTIAL_PEAK2'),
-              _txt(row, 'CUSM_REN_LREAD_PARTIAL_PEAK3'),
-              _txt(row, 'CUSM_REN_LREAD_PARTIAL_OFFPEAK2'),
-              _txt(row, 'CUSM_REN_LREAD_PARTIAL_OFFPEAK3'),
-              _txt(row, 'CUSM_PREAD_EXP_PEAK_TIME'),
-              _txt(row, 'CUSM_PREAD_EXP_OFFPEAK_TIME'),
+              _txt(row, 'CUSM_PREAD_OUT_PEAK_TIME'),
+              _txt(row, 'CUSM_PREAD_PARTIAL_PEAK1'),
+              _txt(row, 'CUSM_PREAD_PARTIAL_PEAK2'),
+              _txt(row, 'CUSM_LREAD_PEAK_TIME'),
+              _txt(row, 'CUSM_LREAD_OUT_PEAK_TIME'),
+              _txt(row, 'CUSM_LREAD_PARTIAL_PEAK1'),
+              _txt(row, 'CUSM_LREAD_PARTIAL_PEAK2'),
             ]
           : [];
 
@@ -122,6 +126,7 @@ class CustomerInfoModel extends CustomerInfoEntity {
         posX: _txtNullable(row, 'POS_X'),
         posY: _txtNullable(row, 'POS_Y'),
         hasTimeOfUse: hasToU,
+        isRenewable: isRenewable,
         timeReadings: timeReadings,
       );
     } catch (_) {
@@ -154,6 +159,13 @@ class CustomerInfoModel extends CustomerInfoEntity {
       final row = _findFirstRow(xmlBody);
       if (row == null) return this;
 
+      final subType = _txt(row, 'CUSM_KIND');
+      final lRead = _txt(row, 'CUSM_M_LREAD');
+      final lDate = _txt(row, 'CUSM_M_LDATE');
+      final mob = _txt(row, 'MOBILE_NO');
+      final reg = _txt(row, 'REGM_CODE');
+      final rdr = _txt(row, 'RDRM_NAME');
+
       return CustomerInfoModel(
         customerName: customerName,
         subscriptionSerial: subscriptionSerial,
@@ -166,15 +178,16 @@ class CustomerInfoModel extends CustomerInfoEntity {
         isSmart: isSmart,
         phase: phase,
         subscriptionKind: subscriptionKind,
-        subscriptionType: _txt(row, 'CUSM_KIND'),
-        lastReading: _txt(row, 'CUSM_M_LREAD'),
-        lastReadingDate: _txt(row, 'CUSM_M_LDATE'),
-        supportPhone: supportPhone,
-        regionCode: regionCode,
-        readerName: readerName,
+        subscriptionType: subType.isNotEmpty ? subType : subscriptionType,
+        lastReading: lRead.isNotEmpty ? lRead : lastReading,
+        lastReadingDate: lDate.isNotEmpty ? lDate : lastReadingDate,
+        supportPhone: mob.isNotEmpty ? mob : supportPhone,
+        regionCode: reg.isNotEmpty ? reg : regionCode,
+        readerName: rdr.isNotEmpty ? rdr : readerName,
         posX: posX,
         posY: posY,
         hasTimeOfUse: hasTimeOfUse,
+        isRenewable: isRenewable,
         timeReadings: timeReadings,
         hasIllegalNotification: hasIllegalNotification,
       );
