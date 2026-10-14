@@ -77,10 +77,14 @@ class OperationModel extends OperationEntity {
           isFound: false,
         );
       }
+
+      final subNum = _txt(row, 'CUSTOMER_ID');
+      final city = _txt(row, 'CITY');
+
       return OperationModel(
         pid: pid,
-        city: _txt(row, 'CITY'),
-        subscriptionNum: _txt(row, 'CUSTOMER_ID'),
+        city: city,
+        subscriptionNum: subNum,
         engineerName: '',
         engineerNumber: '',
         workshopName: '',
@@ -90,7 +94,7 @@ class OperationModel extends OperationEntity {
         notes: '',
         date: '',
         approvalState: '',
-        isFound: true,
+        isFound: subNum.isNotEmpty,
       );
     } catch (_) {
       return OperationModel(

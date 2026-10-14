@@ -57,22 +57,43 @@ class InspectionInquiryCubit extends Cubit<InspectionInquiryState> {
   // ── searchOperation ────────────────────────────────────────────────────────
 
   Future<void> searchOperation(String pid) async {
-    if (pid.trim().isEmpty) return;
+    final trimmed = pid.trim();
+    if (trimmed.isEmpty) return;
+
+    if (trimmed.length == 10 && int.tryParse(trimmed) != null) {
+      emit(InspectionInquiryFailure(
+        message: 'خطأ: لقد أدخلت رقم اشتراك (10 منازل). البحث في هذه الشاشة يتم حصرياً برقم العملية (PID) فقط.',
+        engineers: _engineers,
+        helperWorkshops: _workshops,
+      ));
+      return;
+    }
+
     emit(InspectionInquiryLoading(
         engineers: _engineers, helperWorkshops: _workshops));
 
-    final result = await _getOperation(pid.trim());
+    final result = await _getOperation(trimmed);
     result.fold(
       (failure) => emit(InspectionInquiryFailure(
         message: failure.message,
         engineers: _engineers,
         helperWorkshops: _workshops,
       )),
-      (operation) => emit(OperationLoaded(
-        operation: operation,
-        engineers: _engineers,
-        helperWorkshops: _workshops,
-      )),
+      (operation) {
+        if (!operation.isFound || operation.subscriptionNum.trim().isEmpty) {
+          emit(InspectionInquiryFailure(
+            message: 'لا يوجد معاملة',
+            engineers: _engineers,
+            helperWorkshops: _workshops,
+          ));
+        } else {
+          emit(OperationLoaded(
+            operation: operation,
+            engineers: _engineers,
+            helperWorkshops: _workshops,
+          ));
+        }
+      },
     );
   }
 
