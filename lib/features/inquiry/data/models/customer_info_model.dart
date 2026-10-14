@@ -1,24 +1,6 @@
 /// # CustomerInfoModel
 ///
 /// Data-layer model extending [CustomerInfoEntity] with SOAP XML parsing logic.
-///
-/// ## SOAP Calls Handled
-///
-/// 1. **DataType:31** — Primary meter info
-///    Action: `GetCustomerBillingInfoEnc`
-///    Query: `DataType:31;Where:;mtrnum: and mtr.MTR_M_NUM = '{meterNum}'`
-///    Fields: CTYM_NAME, CUSM_NAME, MTR_NUM, MTR_CITY, SMART, KIND, MODEL,
-///            ADDRESS, MTR_M_NUM, FAZ, C_KIND, POS_X, POS_Y, REN, MOBILE_NO,
-///            REGM_CODE, RDRM_NAME, CUSM_COSTTIME_FLAG,
-///            CUSM_PREAD_PEAK_TIME, CUSM_PREAD_OUT_PEAK_TIME, etc. (ToU fields)
-///
-/// 2. **DataType:13** — Extra subscription info
-///    Action: `GetCustomerBillingInfoEnc`
-///    Query: `DataType:13;Where: and LPAD(...)... = '{sub}';mtrnum:`
-///    Fields: CUSM_KIND, CUSM_M_LREAD, CUSM_M_LDATE
-///
-/// The two responses are merged into a single [CustomerInfoModel] instance by
-/// the data source before being returned to the repository.
 library;
 
 import 'package:xml/xml.dart';
@@ -46,36 +28,17 @@ class CustomerInfoModel extends CustomerInfoEntity {
     required super.readerName,
     super.posX,
     super.posY,
+    super.lastInspectionDate,
+    super.lastVisitDate,
+    super.supportProviderName,
+    super.meterStatus,
+    super.loadProfile,
     required super.hasTimeOfUse,
     required super.isRenewable,
     required super.timeReadings,
     super.hasIllegalNotification,
   });
 
-  // ---------------------------------------------------------------------------
-  // fromMeterXml — parses DataType:31 response
-  // ---------------------------------------------------------------------------
-
-  /// ## fromMeterXml
-  ///
-  /// **SOAP Method**: `GetCustomerBillingInfoEnc`
-  /// **Query DataType**: `31`
-  /// **SOAP Action**: `http://tempuri.org/IBillingWcfsrv/GetCustomerBillingInfoEnc`
-  ///
-  /// **Description**: Parses the raw SOAP XML body returned by the DataType:31
-  /// (meter-number lookup) call and extracts all customer/meter fields into a
-  /// [CustomerInfoModel].
-  ///
-  /// Uses two fallback strategies (structural diffgram navigation, then
-  /// any-row scan) to handle namespace variations in the .NET DataSet response.
-  ///
-  /// **Parameters**:
-  /// - [xmlBody] — Raw SOAP response XML string.
-  ///
-  /// **Returns**: Populated [CustomerInfoModel], or `null` if no valid row
-  /// found (empty `MTR_M_NUM`).
-  ///
-  /// **Throws**: Never — XML parse errors return `null`.
   static CustomerInfoModel? fromMeterXml(String xmlBody) {
     try {
       final row = _findFirstRow(xmlBody);
@@ -104,6 +67,7 @@ class CustomerInfoModel extends CustomerInfoEntity {
           : [];
 
       final smart = _txt(row, 'SMART');
+      final mStatus = _txt(row, 'MTR_STATUS');
 
       return CustomerInfoModel(
         customerName: _txt(row, 'CUSM_NAME'),
@@ -125,6 +89,11 @@ class CustomerInfoModel extends CustomerInfoEntity {
         readerName: _txt(row, 'RDRM_NAME'),
         posX: _txtNullable(row, 'POS_X'),
         posY: _txtNullable(row, 'POS_Y'),
+        lastInspectionDate: _txt(row, 'LAST_INSP_DATE'),
+        lastVisitDate: _txt(row, 'LAST_VISIT_DATE'),
+        supportProviderName: _txt(row, 'SUPPORT_NAME'),
+        meterStatus: mStatus.isEmpty ? 'Connected' : mStatus,
+        loadProfile: _txt(row, 'LOAD_PROFILE'),
         hasTimeOfUse: hasToU,
         isRenewable: isRenewable,
         timeReadings: timeReadings,
@@ -134,26 +103,6 @@ class CustomerInfoModel extends CustomerInfoEntity {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // withExtraInfo — merges DataType:13 fields into an existing model
-  // ---------------------------------------------------------------------------
-
-  /// ## withExtraInfo
-  ///
-  /// **SOAP Method**: `GetCustomerBillingInfoEnc`
-  /// **Query DataType**: `13`
-  ///
-  /// **Description**: Parses the DataType:13 (extra subscription info) SOAP
-  /// response and returns a new [CustomerInfoModel] with the additional fields
-  /// (`subscriptionType`, `lastReading`, `lastReadingDate`) merged in.
-  ///
-  /// **Parameters**:
-  /// - [xmlBody] — Raw SOAP response XML from the DataType:13 call.
-  ///
-  /// **Returns**: Updated [CustomerInfoModel] with extra fields populated,
-  /// or `this` unchanged if the response cannot be parsed.
-  ///
-  /// **Throws**: Never.
   CustomerInfoModel withExtraInfo(String xmlBody) {
     try {
       final row = _findFirstRow(xmlBody);
@@ -165,6 +114,11 @@ class CustomerInfoModel extends CustomerInfoEntity {
       final mob = _txt(row, 'MOBILE_NO');
       final reg = _txt(row, 'REGM_CODE');
       final rdr = _txt(row, 'RDRM_NAME');
+      final inspDate = _txt(row, 'LAST_INSP_DATE');
+      final visitDate = _txt(row, 'LAST_VISIT_DATE');
+      final suppName = _txt(row, 'SUPPORT_NAME');
+      final mStatus = _txt(row, 'MTR_STATUS');
+      final lProfile = _txt(row, 'LOAD_PROFILE');
 
       return CustomerInfoModel(
         customerName: customerName,
@@ -186,6 +140,11 @@ class CustomerInfoModel extends CustomerInfoEntity {
         readerName: rdr.isNotEmpty ? rdr : readerName,
         posX: posX,
         posY: posY,
+        lastInspectionDate: inspDate.isNotEmpty ? inspDate : lastInspectionDate,
+        lastVisitDate: visitDate.isNotEmpty ? visitDate : lastVisitDate,
+        supportProviderName: suppName.isNotEmpty ? suppName : supportProviderName,
+        meterStatus: mStatus.isNotEmpty ? mStatus : meterStatus,
+        loadProfile: lProfile.isNotEmpty ? lProfile : loadProfile,
         hasTimeOfUse: hasTimeOfUse,
         isRenewable: isRenewable,
         timeReadings: timeReadings,
@@ -196,24 +155,6 @@ class CustomerInfoModel extends CustomerInfoEntity {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // hasNotification — checks DataType:18 response for an illegal notification
-  // ---------------------------------------------------------------------------
-
-  /// ## hasNotificationFromXml
-  ///
-  /// **SOAP Method**: `GetIllegalNotification`
-  /// **Query**: `DataType:18;Where: and LPAD(city_id,3,'0')||LPAD(cust_id,7,'0') = '{sub}'`
-  ///
-  /// **Description**: Returns `true` if the DataType:18 response contains at
-  /// least one row (i.e. an illegal notification exists for this subscription).
-  ///
-  /// **Parameters**:
-  /// - [xmlBody] — Raw SOAP XML response.
-  ///
-  /// **Returns**: `true` if a notification exists, `false` otherwise.
-  ///
-  /// **Throws**: Never.
   static bool hasNotificationFromXml(String xmlBody) {
     try {
       final row = _findFirstRow(xmlBody);
@@ -225,18 +166,9 @@ class CustomerInfoModel extends CustomerInfoEntity {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Shared XML helpers
-  // ---------------------------------------------------------------------------
-
-  /// Finds the first data row inside the .NET DataSet diffgram response.
-  ///
-  /// Strategy 1: Body → diffgram → NewDataSet → first row element.
-  /// Strategy 2: Any diffgram anywhere in the document.
   static XmlElement? _findFirstRow(String xmlBody) {
     final document = XmlDocument.parse(xmlBody);
 
-    // Strategy 1: navigate via SOAP Body
     final body = document.descendants
         .whereType<XmlElement>()
         .where((e) => e.localName == 'Body')
@@ -254,7 +186,6 @@ class CustomerInfoModel extends CustomerInfoEntity {
       }
     }
 
-    // Strategy 2: scan the whole document for diffgram
     final diffgram = document.descendants
         .whereType<XmlElement>()
         .where((e) => e.localName == 'diffgram')
@@ -267,7 +198,6 @@ class CustomerInfoModel extends CustomerInfoEntity {
     return null;
   }
 
-  /// Returns all data rows from the diffgram (for list responses).
   static List<XmlElement> _findAllRows(String xmlBody) {
     try {
       final document = XmlDocument.parse(xmlBody);
@@ -283,8 +213,6 @@ class CustomerInfoModel extends CustomerInfoEntity {
     }
   }
 
-  /// Extracts trimmed text of a child element by localName.
-  /// Returns empty string on any failure.
   static String _txt(XmlElement el, String tag) {
     try {
       return el.childElements
@@ -296,7 +224,6 @@ class CustomerInfoModel extends CustomerInfoEntity {
     }
   }
 
-  /// Like [_txt] but returns `null` instead of empty string when not found.
   static String? _txtNullable(XmlElement el, String tag) {
     try {
       final v = el.childElements
@@ -309,9 +236,6 @@ class CustomerInfoModel extends CustomerInfoEntity {
     }
   }
 
-  // Expose _findAllRows publicly for CityModel re-use
   static List<XmlElement> findAllRows(String xmlBody) => _findAllRows(xmlBody);
-
-  // Expose _txt publicly for CityModel re-use
   static String readText(XmlElement el, String tag) => _txt(el, tag);
 }

@@ -133,13 +133,19 @@ class InquiryCubit extends Cubit<InquiryState> {
   ///
   /// **Emits**: [InquiryLoading] → [InquiryLoaded] | [InquiryFailure].
   Future<void> searchBy10Digit(String subscription10) async {
-    final s = subscription10.trim();
+    final s = subscription10.trim().replaceAll(RegExp(r'\s+'), '');
     if (s.isEmpty) return;
     emit(const InquiryLoading());
 
+    // Robust handling for barcodes/inputs that might be longer than 10 digits
+    // (e.g. 12, 13, 14 digits) or exactly 10 digits.
+    final clean10 = s.length > 10 ? s.substring(s.length - 10) : s;
+    final cityCode = clean10.length >= 3 ? clean10.substring(0, 3) : clean10;
+    final subSerial = clean10.length > 3 ? clean10.substring(3) : '';
+
     final result = await _searchBySub(
-      cityCode: s.substring(0, s.length >= 3 ? 3 : s.length),
-      subSerial: s.length > 3 ? s.substring(3) : '',
+      cityCode: cityCode,
+      subSerial: subSerial,
     );
     result.fold(
       (failure) =>

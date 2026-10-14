@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:ideco_platform/injection_container.dart';
 import 'package:ideco_platform/features/billing/screens/view_customer_bill_screen.dart';
@@ -11,6 +12,7 @@ import 'package:ideco_platform/features/inquiry/domain/entities/city_entity.dart
 import 'package:ideco_platform/features/inquiry/domain/entities/customer_info_entity.dart';
 import 'package:ideco_platform/features/inquiry/presentation/cubit/inquiry_cubit.dart';
 import 'package:ideco_platform/features/inquiry/presentation/cubit/inquiry_state.dart';
+import 'package:ideco_platform/core/widgets/barcode_scanner_screen.dart';
 
 enum InquiryMode {
   normal,
@@ -71,6 +73,7 @@ class _InquiryViewState extends State<_InquiryView> {
 
   int _activeTab = 0;
   bool _hasResult = false;
+  DateTime? _lastSearchTime;
 
   @override
   void initState() {
@@ -107,20 +110,39 @@ class _InquiryViewState extends State<_InquiryView> {
   }
 
   void _onSearch(BuildContext ctx) {
+    final now = DateTime.now();
+    if (_lastSearchTime != null && now.difference(_lastSearchTime!).inMilliseconds < 800) {
+      return; // Debounce guard against multiple rapid triggers from barcode scanners
+    }
+    _lastSearchTime = now;
+
     final cubit = ctx.read<InquiryCubit>();
+    if (cubit.state is InquiryLoading) return;
+
     final cityCode = _cityCodeCtrl.text.trim();
     final subSerial = _subSerial7Ctrl.text.trim();
     final meterNum = _meterNumCtrl.text.trim();
-    final sub10 = _sub10Ctrl.text.trim();
+    final sub10 = _sub10Ctrl.text.trim().replaceAll(RegExp(r'\s+'), '');
 
-    if (sub10.isNotEmpty && sub10.length >= 10) {
+    if (sub10.isNotEmpty) {
       cubit.searchBy10Digit(sub10);
     } else if (meterNum.isNotEmpty) {
-      cubit.searchByMeter(meterNum);
+      cubit.searchByMeter(meterNum.trim());
     } else if (cityCode.isNotEmpty && subSerial.isNotEmpty) {
       cubit.searchBySubscription(cityCode, subSerial);
     } else {
       _showSimpleSnack(ctx, 'الرجاء إدخال بيانات البحث', Colors.orange);
+    }
+  }
+
+  Future<void> _openCameraScanner(TextEditingController targetCtrl) async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+    );
+    if (!mounted) return;
+    if (result != null && result.isNotEmpty) {
+      targetCtrl.text = result;
+      _onSearch(context);
     }
   }
 
@@ -145,6 +167,30 @@ class _InquiryViewState extends State<_InquiryView> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
+  }
+
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    if (phoneNumber.isEmpty) return;
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    } else {
+      if (!mounted) return;
+      _showSimpleSnack(context, 'تعذر إجراء المكالمة', Colors.red);
+    }
+  }
+
+  Future<void> _openMap(String? lat, String? lng) async {
+    if (lat == null || lng == null || lat.isEmpty || lng.isEmpty || lat == '-1' || lng == '-1') {
+      _showSimpleSnack(context, 'الإحداثيات غير متوفرة', Colors.orange);
+      return;
+    }
+    final Uri url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      _showSimpleSnack(context, 'تعذر فتح الخريطة', Colors.red);
+    }
   }
 
   @override
@@ -172,6 +218,7 @@ class _InquiryViewState extends State<_InquiryView> {
 
         return Scaffold(
           backgroundColor: _bgGray,
+          resizeToAvoidBottomInset: true,
           body: Column(
             children: [
               _buildHeader(ctx),
@@ -277,7 +324,7 @@ class _InquiryViewState extends State<_InquiryView> {
 
   Widget _buildSearchTabs() {
     final tabs = [
-      (icon: Icons.tag_rounded, label: 'رقم الإشتراك'),
+      (icon: Icons.qr_code_scanner_rounded, label: 'رقم الاشتراك'),
       (icon: Icons.qr_code_rounded, label: 'رقم العداد'),
       (icon: Icons.manage_search_rounded, label: 'بحث متقدم'),
     ];
@@ -324,6 +371,8 @@ class _InquiryViewState extends State<_InquiryView> {
                               isActive ? FontWeight.bold : FontWeight.normal,
                           color: isActive ? Colors.white : Colors.blueGrey,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -356,11 +405,11 @@ class _InquiryViewState extends State<_InquiryView> {
             if (_activeTab == 0)
               _modernInput(
                 controller: _sub10Ctrl,
-                hint: 'رقم الإشتراك (10 خانات)',
+                hint: 'أدخل رقم الاشتراك',
                 enabled: !disabled,
                 type: TextInputType.number,
                 maxLength: 10,
-                icon: Icons.tag_rounded,
+                icon: Icons.badge_outlined,
                 suffixIcon: Icons.search_rounded,
                 onSuffixTap: () => _onSearch(ctx),
                 action: TextInputAction.search,
@@ -369,11 +418,26 @@ class _InquiryViewState extends State<_InquiryView> {
             if (_activeTab == 1)
               _modernInput(
                 controller: _meterNumCtrl,
-                hint: 'أدخل رقم العداد',
+                hint: 'امسح الباركود أو أدخل رقم العداد',
                 enabled: !disabled,
+                type: TextInputType.text,
+                maxLength: 25,
                 icon: Icons.qr_code_scanner_rounded,
-                suffixIcon: Icons.search_rounded,
-                onSuffixTap: () => _onSearch(ctx),
+                customSuffix: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.camera_alt_rounded, color: _primaryBlue, size: 22),
+                      tooltip: 'مسح الباركود بالكاميرا',
+                      onPressed: () => _openCameraScanner(_meterNumCtrl),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.search_rounded, color: _primaryBlue, size: 22),
+                      tooltip: 'بحث',
+                      onPressed: () => _onSearch(ctx),
+                    ),
+                  ],
+                ),
                 action: TextInputAction.search,
                 onSubmitted: (_) => _onSearch(ctx),
               ),
@@ -510,8 +574,15 @@ class _InquiryViewState extends State<_InquiryView> {
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.grey.shade300),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -524,8 +595,8 @@ class _InquiryViewState extends State<_InquiryView> {
                 decoration: BoxDecoration(
                   color: Colors.orange.shade50,
                   borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(8),
-                    topRight: Radius.circular(8),
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
                   ),
                 ),
                 child: Text(
@@ -539,6 +610,72 @@ class _InquiryViewState extends State<_InquiryView> {
                   textAlign: TextAlign.center,
                 ),
               ),
+            // Barcode & 10-digit subscription banner
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              decoration: BoxDecoration(
+                color: _primaryBlue.withValues(alpha: 0.08),
+                borderRadius: c.hasIllegalNotification 
+                    ? BorderRadius.zero 
+                    : const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        topRight: Radius.circular(16),
+                      ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: [
+                        const Icon(Icons.qr_code_2_rounded, color: _primaryBlue, size: 20),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'باركود: ${c.formattedSubscription}',
+                            style: const TextStyle(
+                              fontFamily: 'AdFont',
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                              color: _primaryBlue,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: c.meterStatus.toLowerCase().contains('disconn') 
+                          ? Colors.red.shade50 
+                          : Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: c.meterStatus.toLowerCase().contains('disconn') 
+                            ? Colors.red.shade200 
+                            : Colors.green.shade200,
+                      ),
+                    ),
+                    child: Text(
+                      c.meterStatus.isEmpty ? 'Connected' : c.meterStatus,
+                      style: TextStyle(
+                        fontFamily: 'AdFont',
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: c.meterStatus.toLowerCase().contains('disconn') 
+                            ? Colors.red.shade800 
+                            : Colors.green.shade800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -555,11 +692,12 @@ class _InquiryViewState extends State<_InquiryView> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    c.formattedSubscription,
+                    c.townThenSubscription,
                     style: TextStyle(
                       fontFamily: 'AdFont',
-                      fontSize: 14,
-                      color: Colors.grey.shade600,
+                      fontSize: 13.5,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const Padding(
@@ -573,20 +711,84 @@ class _InquiryViewState extends State<_InquiryView> {
                   _simpleRow('العنوان', c.address),
                   if (c.subscriptionType.isNotEmpty)
                     _simpleRow('نوع الاشتراك', c.subscriptionType),
-                  if (c.supportPhone.isNotEmpty)
-                    _simpleRow('هاتف المدعوم', c.supportPhone),
-                  if (c.regionCode.isNotEmpty)
-                    _simpleRow('رقم المنطقة', c.regionCode),
+                  
+                  // Phone with call button
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 110,
+                          child: Text(
+                            'هاتف الدعم:',
+                            style: TextStyle(fontFamily: 'AdFont', fontSize: 13, color: Colors.grey.shade600),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            c.supportPhone.isNotEmpty ? c.supportPhone : '---',
+                            style: const TextStyle(fontFamily: 'AdFont', fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: c.supportPhone.isNotEmpty ? () => _makePhoneCall(c.supportPhone) : null,
+                          icon: Icon(Icons.phone_rounded, color: c.supportPhone.isNotEmpty ? Colors.green : Colors.grey.shade400, size: 20),
+                          tooltip: 'اتصال',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  _simpleRow('مقدم الدعم', c.supportProviderName.isNotEmpty ? c.supportProviderName : '---'),
+
                   if (c.readerName.isNotEmpty)
                     _simpleRow('القارئ', c.readerName),
+
                   if (c.lastReading.isNotEmpty)
                     _simpleRow('آخر قراءة', c.lastReading),
+
                   if (c.lastReadingDate.isNotEmpty)
                     _simpleRow('تاريخ آخر قراءة', c.lastReadingDate),
+
+                  _simpleRow('آخر معاملة تفتيش', c.lastInspectionDate.isNotEmpty ? c.lastInspectionDate : '---'),
+
+                  if (c.lastVisitDate.isNotEmpty)
+                    _simpleRow('تاريخ آخر زيارة', c.lastVisitDate),
+
+                  _simpleRow('حمل العداد الذكي', c.loadProfile.isNotEmpty ? c.loadProfile : '---'),
+
+                  if (c.hasLocation)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 5),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 110,
+                            child: Text(
+                              'موقع الاشتراك:',
+                              style: TextStyle(fontFamily: 'AdFont', fontSize: 13, color: Colors.grey.shade600),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              'X: ${c.posX}, Y: ${c.posY}',
+                              style: const TextStyle(fontFamily: 'AdFont', fontSize: 11.5, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () => _openMap(c.posY, c.posX),
+                            icon: const Icon(Icons.map_rounded, size: 16, color: _accentBlue),
+                            label: const Text('الخريطة', style: TextStyle(fontFamily: 'AdFont', fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
-                    child: OutlinedButton(
+                    child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(ctx).push(
                           MaterialPageRoute(
@@ -599,17 +801,19 @@ class _InquiryViewState extends State<_InquiryView> {
                           ),
                         );
                       },
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: _accentBlue),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: const Text(
-                        'استعراض الفواتير',
-                        style: TextStyle(
+                      icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                      label: Text(
+                        'فواتير المشترك ${c.hasLocation ? '(مع الإحداثيات)' : ''}',
+                        style: const TextStyle(
                             fontFamily: 'AdFont',
                             fontWeight: FontWeight.bold,
                             color: _accentBlue),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: _accentBlue),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ),
@@ -871,6 +1075,7 @@ class _InquiryViewState extends State<_InquiryView> {
     IconData? icon,
     IconData? suffixIcon,
     VoidCallback? onSuffixTap,
+    Widget? customSuffix,
     TextInputAction? action,
     void Function(String)? onSubmitted,
     void Function(String)? onChanged,
@@ -892,12 +1097,13 @@ class _InquiryViewState extends State<_InquiryView> {
             fontFamily: 'AdFont'),
         prefixIcon:
             icon != null ? Icon(icon, color: _primaryBlue, size: 20) : null,
-        suffixIcon: suffixIcon != null
-            ? IconButton(
-                icon: Icon(suffixIcon, color: _primaryBlue, size: 22),
-                onPressed: onSuffixTap,
-              )
-            : null,
+        suffixIcon: customSuffix ??
+            (suffixIcon != null
+                ? IconButton(
+                    icon: Icon(suffixIcon, color: _primaryBlue, size: 22),
+                    onPressed: onSuffixTap,
+                  )
+                : null),
         counterText: '',
         filled: true,
         fillColor: enabled ? Colors.grey.shade50 : Colors.grey.shade100,

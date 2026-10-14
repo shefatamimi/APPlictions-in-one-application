@@ -24,6 +24,13 @@ class CustomerInfoEntity extends Equatable {
   final String? posX;
   final String? posY;
 
+  /// New fields requested by engineer
+  final String lastInspectionDate;
+  final String lastVisitDate;
+  final String supportProviderName;
+  final String meterStatus;
+  final String loadProfile;
+
   /// CUSM_COSTTIME_FLAG == "1"
   final bool hasTimeOfUse;
 
@@ -65,6 +72,11 @@ class CustomerInfoEntity extends Equatable {
     required this.readerName,
     this.posX,
     this.posY,
+    this.lastInspectionDate = '',
+    this.lastVisitDate = '',
+    this.supportProviderName = '',
+    this.meterStatus = 'Connected',
+    this.loadProfile = '',
     required this.hasTimeOfUse,
     this.isRenewable = false,
     required this.timeReadings,
@@ -73,6 +85,9 @@ class CustomerInfoEntity extends Equatable {
 
   String get formattedSubscription =>
       cityCode.padLeft(3, '0') + subscriptionSerial.padLeft(7, '0');
+
+  String get townThenSubscription =>
+      '$cityName — $formattedSubscription';
 
   bool get hasLocation =>
       posX != null &&
@@ -102,6 +117,11 @@ class CustomerInfoEntity extends Equatable {
         readerName: readerName,
         posX: posX,
         posY: posY,
+        lastInspectionDate: lastInspectionDate,
+        lastVisitDate: lastVisitDate,
+        supportProviderName: supportProviderName,
+        meterStatus: meterStatus,
+        loadProfile: loadProfile,
         hasTimeOfUse: hasTimeOfUse,
         isRenewable: isRenewable,
         timeReadings: timeReadings,
@@ -129,6 +149,11 @@ class CustomerInfoEntity extends Equatable {
         readerName,
         posX,
         posY,
+        lastInspectionDate,
+        lastVisitDate,
+        supportProviderName,
+        meterStatus,
+        loadProfile,
         hasTimeOfUse,
         isRenewable,
         timeReadings,

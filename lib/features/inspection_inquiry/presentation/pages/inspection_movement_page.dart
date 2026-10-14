@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:ideco_platform/features/submission/domain/entities/submission_entity.dart';
 import 'package:ideco_platform/features/inquiry/domain/entities/customer_info_entity.dart';
+import 'package:ideco_platform/core/widgets/barcode_scanner_screen.dart';
 
 class InspectionMovementPage extends StatefulWidget {
   const InspectionMovementPage({super.key});
@@ -219,41 +220,41 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
       icon: Icons.edit_document,
       children: [
         _buildField("قراءة العداد *", _readingCtrl, Icons.speed_rounded,
-            type: TextInputType.number),
+            type: TextInputType.number, isScanable: true),
         _buildDropdown(
-            "ضابطة عدلية *", Icons.gavel_rounded, ["يوجد", "لا يوجد"]),
+            "ضابطة عدلية *", Icons.gavel_rounded, ['--اختر--', 'يوجد', 'لا يوجد']),
         _buildField("إسم الضابطة", _policeNameCtrl, Icons.badge_rounded),
         _buildDropdown(
-            "شرطة *", Icons.local_police_rounded, ["يوجد", "لا يوجد"]),
+            "شرطة *", Icons.local_police_rounded, ['--اختر--', 'يوجد', 'لا يوجد']),
         _buildDropdown("عدد أفراد الشرطة", Icons.people_alt_rounded,
             ["0", "1", "2", "3", "4", "5", "6+"]),
         _buildDropdown("سبب التفتيش *", Icons.help_center_rounded,
-            ["عشوائي", "موجه", "بلاغ"]),
+            ['--اختر--', 'عشوائي', 'موجه', 'بلاغ']),
         _buildDropdown("مصدر التغذية *", Icons.electrical_services_rounded,
-            ["رسمي", "عن طريق العبث", "مفصول", "من إشتراك مجاور"]),
-        _buildField("إشتراك المغذي", _feederSubCtrl, Icons.link_rounded),
+            ['--اختر--', 'رسمي', 'عن طريق العبث', 'مفصول', 'من إشتراك مجاور']),
+        _buildField("إشتراك المغذي", _feederSubCtrl, Icons.link_rounded, isScanable: true),
         _buildDropdown("ختم غطاء التوصيلات *", Icons.lock_outline_rounded,
-            ["سليم", "عاطل"]),
+            ['--اختر--', 'يوجد', 'لا يوجد']),
         _buildField("رقم ختم التوصيلات", _connSealNumCtrl,
-            Icons.confirmation_num_outlined),
+            Icons.confirmation_num_outlined, isScanable: true),
         _buildDropdown(
-            "ختم اللوحة *", Icons.lock_person_rounded, ["سليم", "عاطل"]),
+            "ختم اللوحة *", Icons.lock_person_rounded, ['--اختر--', 'يوجد', 'لا يوجد']),
         _buildField("رقم ختم اللوحة", _boardSealNumCtrl,
-            Icons.confirmation_num_outlined),
+            Icons.confirmation_num_outlined, isScanable: true),
         _buildDropdown("إجراء مستقبلي *", Icons.next_plan_rounded,
-            ["لا يوجد", "متابعة", "فصل"]),
+            ['--اختر--', 'يوجد', 'لا يوجد']),
         _buildDropdown("دوام رسمي *", Icons.work_history_rounded,
-            ["داخل الأوقات", "خارج الأوقات"]),
+            ['--اختر--', 'داخل اوقات العمل الرسمي', 'خارج اوقات العمل الرسمي']),
         _buildDropdown(
-            "نوع الشفت *", Icons.schedule_rounded, ["نهاري", "مسائي"]),
+            "نوع الشفت *", Icons.schedule_rounded, ['--اختر--', 'نهاري', 'مسائي']),
         _buildDropdown("نوع العبث *", Icons.warning_amber_rounded,
-            ["تلاعب بالعداد", "تلاعب بالكيبل", "لا يوجد"]),
+            ['--اختر--', 'تلاعب بالعداد', 'تلاعب بالكيبل', 'لا يوجد']),
         _buildDropdown(
-            "رسالة نصية", Icons.sms_rounded, ["يلزم الإرسال", "لا يلزم"]),
+            "رسالة نصية", Icons.sms_rounded, ['--اختر--', 'يلزم الإرسال', 'لا يلزم']),
         _buildDropdown("حالة العداد *", Icons.settings_input_component_rounded,
-            ["سليم", "عاطل"]),
+            ['--اختر--', 'سليم', 'عاطل']),
         _buildDropdown("سيارة كهربائية", Icons.electric_car_rounded,
-            ["يوجد", "لا يوجد", "لا يمكن التحديد"]),
+            ['--اختر--', 'يوجد', 'لا يوجد', 'لا يمكن التحديد']),
         _buildField(
             "مساعد الورشة", _assistantCtrl, Icons.person_add_alt_rounded),
         _buildField("السائق المرافق", _driverCtrl, Icons.drive_eta_rounded),
@@ -336,7 +337,7 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
   }
 
   Widget _buildField(String label, TextEditingController ctrl, IconData icon,
-      {TextInputType type = TextInputType.text}) {
+      {TextInputType type = TextInputType.text, bool isScanable = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
       child: TextField(
@@ -346,6 +347,21 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, size: 18, color: primaryBlue),
+          suffixIcon: isScanable
+              ? IconButton(
+                  icon: const Icon(Icons.qr_code_scanner_rounded, color: primaryBlue, size: 20),
+                  tooltip: 'مسح الباركود بالكاميرا',
+                  onPressed: () async {
+                    final scanned = await Navigator.push<String>(
+                      context,
+                      MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                    );
+                    if (scanned != null && scanned.isNotEmpty) {
+                      setState(() => ctrl.text = scanned);
+                    }
+                  },
+                )
+              : null,
           filled: true,
           fillColor: bgGray.withValues(alpha: 0.5),
           border: OutlineInputBorder(

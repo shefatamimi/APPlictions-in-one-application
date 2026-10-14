@@ -31,6 +31,7 @@ dependencies:
 
   # Connectivity check
   connectivity_plus: ^6.1.1
+  url_launcher: ^6.3.1
 
   # Functional programming (Either<Failure, T>)
   dartz: ^0.10.1
@@ -45,6 +46,9 @@ dependencies:
   google_maps_flutter: ^2.14.0
   geolocator: ^14.0.0
   intl: ^0.20.2
+
+  # Barcode Camera Scanner
+  mobile_scanner: ^5.2.3
 
   # Migrated features dependencies
   flutter_blue_plus: ^1.31.0

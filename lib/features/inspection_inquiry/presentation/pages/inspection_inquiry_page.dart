@@ -12,6 +12,7 @@ import 'package:ideco_platform/injection_container.dart';
 import '../../domain/entities/engineer_entity.dart';
 import '../cubit/inspection_inquiry_cubit.dart';
 import '../cubit/inspection_inquiry_state.dart';
+import 'package:ideco_platform/core/widgets/barcode_scanner_screen.dart';
 
 class InspectionInquiryPage extends StatelessWidget {
   const InspectionInquiryPage({super.key});
@@ -141,9 +142,22 @@ class _InspectionInquiryViewState extends State<_InspectionInquiryView> {
           TextField(
             controller: _pidCtrl,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'رقم العملية',
-              prefixIcon: Icon(Icons.numbers, color: Color(0xFF0284C7)),
+              prefixIcon: const Icon(Icons.numbers, color: Color(0xFF0284C7)),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.qr_code_scanner_rounded, color: Color(0xFF0284C7)),
+                tooltip: 'مسح الباركود بالكاميرا',
+                onPressed: () async {
+                  final scanned = await Navigator.push<String>(
+                    context,
+                    MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                  );
+                  if (scanned != null && scanned.isNotEmpty) {
+                    setState(() => _pidCtrl.text = scanned);
+                  }
+                },
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -246,7 +260,23 @@ class _InspectionInquiryViewState extends State<_InspectionInquiryView> {
 
             TextField(
               controller: _stampCtrl,
-              decoration: const InputDecoration(labelText: 'رقم الختم', prefixIcon: Icon(Icons.confirmation_number)),
+              decoration: InputDecoration(
+                labelText: 'رقم الختم',
+                prefixIcon: const Icon(Icons.confirmation_number),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.qr_code_scanner_rounded, color: AppColors.primary),
+                  tooltip: 'مسح الباركود بالكاميرا',
+                  onPressed: () async {
+                    final scanned = await Navigator.push<String>(
+                      context,
+                      MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                    );
+                    if (scanned != null && scanned.isNotEmpty) {
+                      setState(() => _stampCtrl.text = scanned);
+                    }
+                  },
+                ),
+              ),
             ),
 
             const SizedBox(height: 16),
