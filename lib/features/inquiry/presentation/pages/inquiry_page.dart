@@ -917,8 +917,7 @@ class _InquiryViewState extends State<_InquiryView> {
                 }),
                 _gridActionBtn('حركة فصل', Icons.link_off,
                     isEnabled, const Color(0xFFE11D48), () {
-                  Navigator.of(ctx)
-                      .pushNamed('/inspection-movement', arguments: customer);
+                  _handleDisconnectionTransaction(ctx, customer);
                 }),
                 _gridActionBtn('إدخال تقرير تنفيذ', Icons.assignment_turned_in_rounded,
                     isEnabled, const Color(0xFF7C3AED), () {
@@ -962,8 +961,7 @@ class _InquiryViewState extends State<_InquiryView> {
                 Expanded(
                     child:
                         _actionBtn('حركة فصل', Icons.link_off, isEnabled, () {
-                  Navigator.of(ctx)
-                      .pushNamed('/inspection-movement', arguments: customer);
+                  _handleDisconnectionTransaction(ctx, customer);
                 })),
               ],
             ),
@@ -1062,6 +1060,159 @@ class _InquiryViewState extends State<_InquiryView> {
       if (ctx.mounted) {
         Navigator.of(ctx).pop(); // إغلاق نافذة الإنتظار
         _showSimpleSnack(ctx, 'حدث خطأ بالإتصال يرجى التأكد من الشبكة وإعادة المحاولة', Colors.red);
+      }
+    }
+  }
+
+  Future<void> _handleDisconnectionTransaction(
+      BuildContext ctx, CustomerInfoEntity? customer) async {
+    // 1. فحص وجود رقم المستخدم والورشة
+    final authState = ctx.read<PlatformAuthCubit>().state;
+    if (authState is! PlatformAuthAuthenticated) {
+      _showSimpleSnack(ctx, 'يرجى تسجيل الدخول أولاً', Colors.red);
+      return;
+    }
+    final employee = authState.session.employee;
+
+    if (employee.oracleUser.trim().isEmpty || employee.oracleUser.trim() == '0') {
+      _showSimpleSnack(ctx, 'لا يوجد رقم مستخدم لغايات الفصل و الوصل', Colors.orange);
+      return;
+    }
+
+    if (employee.workshopNumber.trim().isEmpty) {
+      _showSimpleSnack(ctx, 'لا يوجد رقم ورشة', Colors.orange);
+      return;
+    }
+
+    if (customer == null || customer.meterSerialNum.trim().isEmpty) {
+      _showSimpleSnack(ctx, 'يرجى الإستعلام عن عداد أولا', Colors.orange);
+      return;
+    }
+
+    // 2. إظهار نافذة إدخال ملاحظات سبب الفصل (dialog_discon_operation)
+    final notesController = TextEditingController();
+    final bool? confirmed = await showDialog<bool>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.link_off, color: Colors.red),
+            SizedBox(width: 8),
+            Text('إدخال حركة فصل',
+                style: TextStyle(
+                    fontFamily: 'AdFont',
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'يرجى إدخال ملاحظات أو سبب الفصل:',
+              style: TextStyle(fontFamily: 'AdFont', fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: notesController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: 'أدخل الملاحظات هنا...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('إلغاء', style: TextStyle(fontFamily: 'AdFont')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('إرسال حركة الفصل',
+                style: TextStyle(fontFamily: 'AdFont', color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // 3. إظهار نافذة جاري الإنتظار
+    showDialog(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('يرجى الإنتظار...', style: TextStyle(fontFamily: 'AdFont')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final lat = double.tryParse(customer.posX ?? '0') ?? 0.0;
+      final lng = double.tryParse(customer.posY ?? '0') ?? 0.0;
+
+      final workshopId = employee.systemMinor.isNotEmpty
+          ? employee.systemMinor
+          : employee.workshopNumber;
+      final workshopName = employee.workshopName.isNotEmpty
+          ? employee.workshopName
+          : employee.displayName;
+
+      final responseMessage = await DirectCurrentService.disConnTrans(
+        meterNum: customer.meterSerialNum,
+        workshopId: workshopId,
+        workshopName: workshopName,
+        userName: employee.oracleUser,
+        cityId: customer.cityCode,
+        custId: customer.subscriptionSerial,
+        kind: '0',
+        reason: '14',
+        notes: notesController.text.trim(),
+        lat: lat,
+        lng: lng,
+      );
+
+      if (ctx.mounted) {
+        Navigator.of(ctx).pop(); // إغلاق نافذة الإنتظار
+
+        showDialog(
+          context: ctx,
+          builder: (_) => AlertDialog(
+            title: const Text('نتيجة حركة الفصل',
+                style: TextStyle(fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
+            content: Text(responseMessage, style: const TextStyle(fontFamily: 'AdFont')),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('حسناً', style: TextStyle(fontFamily: 'AdFont')),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (ctx.mounted) {
+        Navigator.of(ctx).pop(); // إغلاق نافذة الإنتظار
+        _showSimpleSnack(
+            ctx,
+            'لم تتم عملية الإرسال لحركة الفصل, يرجى المحاولة مجددا',
+            Colors.red);
       }
     }
   }

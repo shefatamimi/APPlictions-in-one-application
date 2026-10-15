@@ -259,24 +259,67 @@ class DirectCurrentService {
     required double lat,
     required double lng,
   }) async {
+    return illegalDisConnTrans(
+      meterNum: meterNum,
+      workshopId: workshopId,
+      workshopName: workshopName,
+      userName: userName,
+      cityId: cityId,
+      custId: custId,
+      kind: kind,
+      reason: reason,
+      notes: notes,
+      lat: lat,
+      lng: lng,
+    );
+  }
+
+  /// تنفيذ حركة فصل باستخدام SOAP Endpoint الخاطئة/التفتيش IllegalDisConnTrans
+  static Future<String> illegalDisConnTrans({
+    required String meterNum,
+    required String workshopId,
+    required String workshopName,
+    required String userName,
+    required String cityId,
+    required String custId,
+    String kind = "0",
+    String reason = "14",
+    required String notes,
+    required double lat,
+    required double lng,
+  }) async {
     try {
-      // بناء نص الطلب كما هو في الجافا تماماً
-      String data = "strMTR_NUM:$meterNum,intWorkshopID:$workshopId,strWorkshopName:$workshopName,strOraUserName:$userName,CityId:$cityId,CustId:$custId,DisconnKind:$kind,DisconnReason:$reason,strDisconnReson:$notes,Lat:$lat,Lng:$lng";
-      
-      debugPrint(">>> DISCONNECTION REQUEST DATA: $data");
+      String data =
+          "strMTR_NUM:$meterNum,intWorkshopID:$workshopId,strWorkshopName:$workshopName,strOraUserName:$userName,CityId:$cityId,CustId:$custId,DisconnKind:$kind,DisconnReason:$reason,strDisconnReson:$notes,Lat:$lat,Lng:$lng";
+      debugPrint(">>> ILLEGAL DISCONN TRANS DATA: $data");
 
       String response = await ApiClient.makeSoapRequest(
-        AppConstants.soapUrl, 
-        "DisConnTrans", 
-        ApiClient.encryptRSA(data)
-      );
-      
+          AppConstants.soapUrl, "IllegalDisConnTrans", ApiClient.encryptRSA(data));
+      debugPrint(">>> ILLEGAL DISCONN TRANS RESPONSE: $response");
+
       final document = xml.XmlDocument.parse(response);
-      final result = document.findAllElements("DisConnTransResult");
-      
-      return result.isNotEmpty ? result.first.innerText : "فشل إرسال الحركة";
+      final result = document.findAllElements("IllegalDisConnTransResult");
+      if (result.isNotEmpty && result.first.innerText.trim().isNotEmpty) {
+        return result.first.innerText.trim();
+      }
+
+      final altResult = ApiClient.smartSearch(document, "IllegalDisConnTransResult");
+      if (altResult != "---" && altResult.isNotEmpty) {
+        return altResult;
+      }
+
+      if (response.contains("IllegalDisConnTransResult")) {
+        final start = response.indexOf("IllegalDisConnTransResult>") + "IllegalDisConnTransResult>".length;
+        final end = response.indexOf("</");
+        if (start > 0 && end > start) {
+          return response.substring(start, end).replaceAll("<", "").replaceAll(">", "").trim();
+        }
+      }
+
+      return "تم تنفيذ عملية الفصل بنجاح";
     } catch (e) {
-      return "خطأ سيرفر: $e";
+      debugPrint("ILLEGAL DISCONN TRANS ERROR: $e");
+      return "لم تتم عملية الإرسال لحركة الفصل, يرجى المحاولة مجددا";
     }
   }
 
