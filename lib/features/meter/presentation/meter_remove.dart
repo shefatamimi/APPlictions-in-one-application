@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:ideco_platform/core/theme/app_colors.dart';
 import 'package:ideco_platform/features/inquiry/domain/entities/customer_info_entity.dart';
 import 'package:ideco_platform/features/meter/services/meter_service.dart';
 import 'package:ideco_platform/platform/presentation/cubit/platform_auth_cubit.dart';
@@ -16,7 +17,7 @@ class MeterRemovalScreen extends StatefulWidget {
 }
 
 class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
-  final Color primarySkyBlue = const Color(0xFF38BDF8);
+  final Color primarySkyBlue = AppColors.primary;
   final Color backgroundGray = const Color(0xFFF1F5F9);
   final ImagePicker _picker = ImagePicker();
 
@@ -273,185 +274,135 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: backgroundGray,
+      appBar: AppBar(
+        title: const Text('نموذج خلع عداد', style: TextStyle(color: Colors.white)),
+        backgroundColor: AppColors.primary,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
       body: Directionality(
         textDirection: TextDirection.rtl,
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                child: Column(
-                  children: [
-                    _buildModernCard(
-                      title: "المعلومات الأساسية",
-                      icon: Icons.info_outline_rounded,
-                      children: [
-                        _buildTextField(
-                            "تاريخ العملية", Icons.calendar_today_rounded,
-                            controller: _dateController, readOnly: true),
-                        _buildTextField(
-                            "اسم الفني المختص", Icons.person_outline_rounded,
-                            controller: _techNameController),
-                        _buildTextField(
-                            "رقم المعاملة / العملية",
-                            Icons.confirmation_num_outlined,
-                            controller: _processNumController,
-                            type: TextInputType.number,
-                            suffixIcon: _isFetchingProcess
-                                ? const Padding(
-                                    padding: EdgeInsets.all(12),
-                                    child: SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2)),
-                                  )
-                                : null),
-                      ],
-                    ),
-                    _buildModernCard(
-                      title: "قائمة تفقد العداد والتوصيلات",
-                      icon: Icons.fact_check_outlined,
-                      children: _checklist.keys
-                          .map((key) => _buildCheckItem(key))
-                          .toList(),
-                    ),
-                    _buildModernCard(
-                      title: "قراءات الطاقة المستجرة (Import)",
-                      icon: Icons.login_rounded,
-                      children: [
-                        _buildTextField("آخر قراءة مستجرة - كلي / عادي",
-                            Icons.speed_rounded,
-                            controller: _importNormalController,
-                            type: TextInputType.number),
-                        _buildTextField("آخر قراءة مستجرة - وقت الذروة",
-                            Icons.trending_up_rounded,
-                            controller: _importPeakController,
-                            type: TextInputType.number),
-                        _buildTextField("آخر قراءة مستجرة - خارج الذروة",
-                            Icons.trending_down_rounded,
-                            controller: _importOffPeakController,
-                            type: TextInputType.number),
-                        _buildTextField("آخر قراءة مستجرة - جزئي 1",
-                            Icons.access_time_rounded,
-                            controller: _importPartial1Controller,
-                            type: TextInputType.number),
-                        _buildTextField("آخر قراءة مستجرة - جزئي 2",
-                            Icons.access_time_rounded,
-                            controller: _importPartial2Controller,
-                            type: TextInputType.number),
-                      ],
-                    ),
-                    _buildModernCard(
-                      title: "قراءات الطاقة المصدرة (Export)",
-                      icon: Icons.logout_rounded,
-                      children: [
-                        _buildTextField(
-                            "آخر قراءة مصدرة - كلي / عادي", Icons.speed_rounded,
-                            controller: _exportNormalController,
-                            type: TextInputType.number),
-                        _buildTextField("آخر قراءة مصدرة - وقت الذروة",
-                            Icons.trending_up_rounded,
-                            controller: _exportPeakController,
-                            type: TextInputType.number),
-                        _buildTextField("آخر قراءة مصدرة - خارج الذروة",
-                            Icons.trending_down_rounded,
-                            controller: _exportOffPeakController,
-                            type: TextInputType.number),
-                        _buildTextField("آخر قراءة مصدرة - جزئي 1",
-                            Icons.access_time_rounded,
-                            controller: _exportPartial1Controller,
-                            type: TextInputType.number),
-                        _buildTextField("آخر قراءة مصدرة - جزئي 2",
-                            Icons.access_time_rounded,
-                            controller: _exportPartial2Controller,
-                            type: TextInputType.number),
-                      ],
-                    ),
-                    _buildModernCard(
-                      title: "الملاحظات الفنية",
-                      icon: Icons.notes_rounded,
-                      children: [
-                        _buildTextField(
-                            "أضف أي ملاحظات هنا...", Icons.edit_note_rounded,
-                            controller: _notesController, maxLines: 3),
-                      ],
-                    ),
-                    _buildModernCard(
-                      title: "التوثيق الصوري (الكاميرا)",
-                      icon: Icons.camera_alt_outlined,
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.only(bottom: 12),
-                          child: Text("يرجى تصوير العداد والأختام بوضوح",
-                              style:
-                                  TextStyle(fontSize: 12, color: Colors.grey)),
-                        ),
-                        GridView.count(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          childAspectRatio: 1.1,
-                          children: _images.keys
-                              .map((label) => _buildImagePickerItem(label))
-                              .toList(),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    _buildSaveButton(),
-                    const SizedBox(height: 40),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.only(bottom: 25),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: [primarySkyBlue, primarySkyBlue.withValues(alpha: 0.85)],
-        ),
-        borderRadius: const BorderRadius.only(
-            bottomLeft: Radius.circular(30), bottomRight: Radius.circular(30)),
-        boxShadow: [
-          BoxShadow(
-              color: primarySkyBlue.withValues(alpha: 0.3),
-              blurRadius: 10,
-              offset: const Offset(0, 5))
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: Row(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          child: Column(
             children: [
-              IconButton(
-                  icon: const Icon(Icons.arrow_back_ios_rounded,
-                      color: Colors.white),
-                  onPressed: () => Navigator.pop(context)),
-              const Expanded(
-                  child: Text("نموذج خلع عداد",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold))),
-              const Icon(Icons.history_edu_rounded,
-                  color: Colors.white, size: 28),
+              _buildModernCard(
+                title: "المعلومات الأساسية",
+                icon: Icons.info_outline_rounded,
+                children: [
+                  _buildTextField("تاريخ العملية", Icons.calendar_today_rounded,
+                      controller: _dateController, readOnly: true),
+                  _buildTextField("اسم الفني المختص", Icons.person_outline_rounded,
+                      controller: _techNameController),
+                  _buildTextField(
+                      "رقم المعاملة / العملية",
+                      Icons.confirmation_num_outlined,
+                      controller: _processNumController,
+                      type: TextInputType.number,
+                      suffixIcon: _isFetchingProcess
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2)),
+                            )
+                          : null),
+                ],
+              ),
+              _buildModernCard(
+                title: "قائمة تفقد العداد والتوصيلات",
+                icon: Icons.fact_check_outlined,
+                children: _checklist.keys
+                    .map((key) => _buildCheckItem(key))
+                    .toList(),
+              ),
+              _buildModernCard(
+                title: "قراءات الطاقة المستجرة (Import)",
+                icon: Icons.login_rounded,
+                children: [
+                  _buildTextField("آخر قراءة مستجرة - كلي / عادي",
+                      Icons.speed_rounded,
+                      controller: _importNormalController,
+                      type: TextInputType.number),
+                  _buildTextField("آخر قراءة مستجرة - وقت الذروة",
+                      Icons.trending_up_rounded,
+                      controller: _importPeakController,
+                      type: TextInputType.number),
+                  _buildTextField("آخر قراءة مستجرة - خارج الذروة",
+                      Icons.trending_down_rounded,
+                      controller: _importOffPeakController,
+                      type: TextInputType.number),
+                  _buildTextField("آخر قراءة مستجرة - جزئي 1",
+                      Icons.access_time_rounded,
+                      controller: _importPartial1Controller,
+                      type: TextInputType.number),
+                  _buildTextField("آخر قراءة مستجرة - جزئي 2",
+                      Icons.access_time_rounded,
+                      controller: _importPartial2Controller,
+                      type: TextInputType.number),
+                ],
+              ),
+              _buildModernCard(
+                title: "قراءات الطاقة المصدرة (Export)",
+                icon: Icons.logout_rounded,
+                children: [
+                  _buildTextField("آخر قراءة مصدرة - كلي / عادي",
+                      Icons.speed_rounded,
+                      controller: _exportNormalController,
+                      type: TextInputType.number),
+                  _buildTextField("آخر قراءة مصدرة - وقت الذروة",
+                      Icons.trending_up_rounded,
+                      controller: _exportPeakController,
+                      type: TextInputType.number),
+                  _buildTextField("آخر قراءة مصدرة - خارج الذروة",
+                      Icons.trending_down_rounded,
+                      controller: _exportOffPeakController,
+                      type: TextInputType.number),
+                  _buildTextField("آخر قراءة مصدرة - جزئي 1",
+                      Icons.access_time_rounded,
+                      controller: _exportPartial1Controller,
+                      type: TextInputType.number),
+                  _buildTextField("آخر قراءة مصدرة - جزئي 2",
+                      Icons.access_time_rounded,
+                      controller: _exportPartial2Controller,
+                      type: TextInputType.number),
+                ],
+              ),
+              _buildModernCard(
+                title: "الملاحظات الفنية",
+                icon: Icons.notes_rounded,
+                children: [
+                  _buildTextField("أضف أي ملاحظات هنا...", Icons.edit_note_rounded,
+                      controller: _notesController, maxLines: 3),
+                ],
+              ),
+              _buildModernCard(
+                title: "التوثيق الصوري (الكاميرا)",
+                icon: Icons.camera_alt_outlined,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text("يرجى تصوير العداد والأختام بوضوح",
+                        style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ),
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 1.1,
+                    children: _images.keys
+                        .map((label) => _buildImagePickerItem(label))
+                        .toList(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              _buildSaveButton(),
+              const SizedBox(height: 40),
             ],
           ),
         ),
