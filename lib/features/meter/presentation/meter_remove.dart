@@ -84,6 +84,18 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
         _fetchRemovingProcess(_customer!.meterSerialNum);
       }
     }
+
+    if (_techNameController.text.isEmpty) {
+      try {
+        final authState = context.read<PlatformAuthCubit>().state;
+        if (authState is PlatformAuthAuthenticated) {
+          final employee = authState.session.employee;
+          _techNameController.text = employee.username.isNotEmpty
+              ? employee.username
+              : employee.displayName;
+        }
+      } catch (_) {}
+    }
   }
 
   Future<void> _fetchRemovingProcess(String meterNum) async {
