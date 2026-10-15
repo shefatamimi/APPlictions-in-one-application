@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:ideco_platform/features/submission/domain/entities/submission_entity.dart';
 import 'package:ideco_platform/features/inquiry/domain/entities/customer_info_entity.dart';
 import 'package:ideco_platform/core/widgets/barcode_scanner_screen.dart';
@@ -20,8 +21,15 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
   final ImagePicker _picker = ImagePicker();
   dynamic _data;
 
-  // ممسكات النصوص
+  // ممسكات النصوص الأساسية والإضافية
   final _readingCtrl = TextEditingController();
+  final _beneficiaryNameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _breakerCapacityCtrl = TextEditingController();
+  final _buildingComponentsCtrl = TextEditingController();
+  final _tamperExplanationCtrl = TextEditingController();
+  final _signatureCtrl = TextEditingController();
+
   final _policeNameCtrl = TextEditingController();
   final _policeNoteCtrl = TextEditingController();
   final _feederSubCtrl = TextEditingController();
@@ -31,20 +39,25 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
   final _driverCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
 
-  // صور التوثيق
+  // صور التوثيق الشاملة
   final Map<String, File?> _images = {
     "صورة العداد (اجباري)": null,
     "صورة العبث": null,
     "تقرير الضابطة": null,
     "نموذج المراجعة": null,
-    "صورة اختياري": null,
+    "حمل الفاز الأول": null,
+    "الفاز الثاني": null,
+    "الفاز الثالث": null,
+    "حمل المتر": null,
+    "صورة التلاعب": null,
+    "تقرير الضابطة السابق": null,
+    "نموذج المراجعة السابق": null,
   };
 
   // قيم القوائم المنسدلة والحقول
   String? _inspectionResult = '--اختر--';
+  String? _phase = '--اختر--';
   String? _judicialPolice = '--اختر--';
-  String? _policeExists = '--اختر--';
-  String? _policeCount = '0';
   String? _inspectionReason = '--اختر--';
   String? _powerSource = '--اختر--';
   String? _connCoverSeal = '--اختر--';
@@ -56,24 +69,15 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
   String? _meterStatus = '--اختر--';
   String? _electricCar = '--اختر--';
 
-  List<String?> _policeNames = [];
-  List<TextEditingController> _policeEvalCtrls = [];
-
-  void _updatePoliceCount(String? countStr) {
-    setState(() {
-      _policeCount = countStr;
-      final count = int.tryParse(countStr ?? '0') ?? 0;
-      _policeNames = List.generate(count, (_) => '--اختر--');
-      for (var c in _policeEvalCtrls) {
-        c.dispose();
-      }
-      _policeEvalCtrls = List.generate(count, (_) => TextEditingController());
-    });
-  }
-
   @override
   void dispose() {
     _readingCtrl.dispose();
+    _beneficiaryNameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _breakerCapacityCtrl.dispose();
+    _buildingComponentsCtrl.dispose();
+    _tamperExplanationCtrl.dispose();
+    _signatureCtrl.dispose();
     _policeNameCtrl.dispose();
     _policeNoteCtrl.dispose();
     _feederSubCtrl.dispose();
@@ -82,9 +86,6 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
     _assistantCtrl.dispose();
     _driverCtrl.dispose();
     _notesCtrl.dispose();
-    for (var c in _policeEvalCtrls) {
-      c.dispose();
-    }
     super.dispose();
   }
 
@@ -99,7 +100,9 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('ملاحظة اسم الضابطة العدلية', textDirection: TextDirection.rtl, style: TextStyle(fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
+        title: const Text('ملاحظة اسم الضابطة العدلية',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
         content: TextField(
           controller: tempCtrl,
           maxLines: 4,
@@ -108,7 +111,9 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
             hintText: 'اكتب ملاحظات الضابطة العدلية هنا...',
             filled: true,
             fillColor: bgGray,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none),
           ),
         ),
         actions: [
@@ -124,10 +129,92 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
               });
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('تم حفظ ملاحظة الضابطة العدلية', textDirection: TextDirection.rtl)),
+                const SnackBar(
+                    content: Text('تم حفظ ملاحظة الضابطة العدلية',
+                        textDirection: TextDirection.rtl)),
               );
             },
-            child: const Text('حفظ', style: TextStyle(color: Colors.white, fontFamily: 'AdFont')),
+            child: const Text('حفظ',
+                style: TextStyle(color: Colors.white, fontFamily: 'AdFont')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendRiskEmail(String riskType) async {
+    final Uri emailLaunchUri = Uri(
+      scheme: 'mailto',
+      path: 'hamza.malkawi@ideco.com.jo,rawia.marwan@ideco.com.jo',
+      query: _encodeQueryParameters(<String, String>{
+        'subject': 'إشعار نموذج المخاطر: $riskType',
+        'body': 'تم رصد الحالة التالية أثناء التفتيش:\n$riskType\nرقم الاشتراك: $_subscriptionNum\nاسم المشترك: $_customerName',
+      }),
+    );
+    try {
+      if (await canLaunchUrl(emailLaunchUri)) {
+        await launchUrl(emailLaunchUri);
+      }
+    } catch (e) {
+      debugPrint("Error launching email: $e");
+    }
+  }
+
+  String? _encodeQueryParameters(Map<String, String> params) {
+    return params.entries
+        .map((e) =>
+            '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+        .join('&');
+  }
+
+  void _showRiskModelDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('نموذج المخاطر (TIC)',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('تم تركيب عداد بدون مرتجع',
+                  style: TextStyle(fontFamily: 'AdFont', fontSize: 13)),
+              leading:
+                  const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              onTap: () {
+                Navigator.pop(ctx);
+                _sendRiskEmail('تم تركيب عداد بدون مرتجع');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text(
+                          'تم إرسال إشعار نموذج المخاطر إلى حمزة ملكاوي وراوية مروان',
+                          textDirection: TextDirection.rtl)),
+                );
+              },
+            ),
+            const Divider(),
+            ListTile(
+              title: const Text('تم خلع عداد بدون تركيب عداد بديل',
+                  style: TextStyle(fontFamily: 'AdFont', fontSize: 13)),
+              leading: const Icon(Icons.error_outline_rounded, color: Colors.red),
+              onTap: () {
+                Navigator.pop(ctx);
+                _sendRiskEmail('تم خلع عداد بدون تركيب عداد بديل');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text(
+                          'تم إرسال إشعار نموذج المخاطر إلى حمزة ملكاوي وراوية مروان',
+                          textDirection: TextDirection.rtl)),
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إغلاق', style: TextStyle(fontFamily: 'AdFont')),
           ),
         ],
       ),
@@ -306,119 +393,113 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
   }
 
   Widget _buildFormSection() {
-    final policeCountOptions = List.generate(11, (i) => i.toString()); // 0 to 10
-    final policeListOptions = ['--اختر--', 'شرطي 1', 'شرطي 2', 'شرطي 3', 'شرطي 4', 'شرطي 5', 'شرطي 6', 'شرطي 7', 'شرطي 8', 'شرطي 9', 'شرطي 10'];
-
     return _buildSectionCard(
       title: "بيانات التفتيش",
       icon: Icons.edit_document,
       children: [
-        _buildField("قراءة العداد وقت الزيارة *", _readingCtrl, Icons.speed_rounded,
+        Align(
+          alignment: Alignment.centerLeft,
+          child: ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade800,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: _showRiskModelDialog,
+            icon: const Icon(Icons.warning_amber_rounded),
+            label: const Text('نموذج المخاطر',
+                style: TextStyle(fontFamily: 'AdFont')),
+          ),
+        ),
+        const SizedBox(height: 10),
+        _buildField(
+            "اسم المنتفع الحالي", _beneficiaryNameCtrl, Icons.person_outline),
+        _buildField("رقم الهاتف", _phoneCtrl, Icons.phone_rounded,
+            type: TextInputType.phone),
+        _buildDropdown("الفاز", Icons.electric_bolt_rounded,
+            ['--اختر--', '1', '3'], _phase, (v) => setState(() => _phase = v)),
+        _buildField("قدرة القاطع", _breakerCapacityCtrl, Icons.bolt_rounded,
+            type: TextInputType.number),
+        _buildField("مكونات البناء", _buildingComponentsCtrl,
+            Icons.apartment_rounded),
+        _buildField("قراءة العداد وقت الزيارة *", _readingCtrl,
+            Icons.speed_rounded,
             type: TextInputType.number, isScanable: true),
         _buildDropdown(
-            "نتيجة التفتيش *", Icons.fact_check_rounded, ['--اختر--', 'سليم', 'عبث', 'سليم بحاجة اجراء مستقبلي'], _inspectionResult, (v) => setState(() => _inspectionResult = v)),
-        _buildDropdown("نوع العبث *", Icons.warning_amber_rounded,
-            ['--اختر--', 'تلاعب بالعداد', 'تلاعب بالكيبل', 'لا يوجد'], _tamperType, (v) => setState(() => _tamperType = v)),
+            "نتيجة التفتيش على العداد *",
+            Icons.fact_check_rounded,
+            ['--اختر--', 'سليم', 'عبث', 'سليم بحاجة اجراء مستقبلي'],
+            _inspectionResult,
+            (v) => setState(() => _inspectionResult = v)),
         _buildDropdown(
-            "ضابطة عدلية *", Icons.gavel_rounded, ['--اختر--', 'يوجد', 'لا يوجد'], _judicialPolice, (v) => setState(() => _judicialPolice = v)),
+            "نوع العبث *",
+            Icons.warning_amber_rounded,
+            ['--اختر--', 'تلاعب بالعداد', 'تلاعب بالكيبل', 'لا يوجد'],
+            _tamperType,
+            (v) => setState(() => _tamperType = v)),
+        _buildField("شروحات العبث", _tamperExplanationCtrl, Icons.note_alt_rounded,
+            maxLines: 5),
+        _buildDropdown("ضابطة عدلية *", Icons.gavel_rounded,
+            ['--اختر--', 'يوجد', 'لا يوجد'], _judicialPolice,
+            (v) => setState(() => _judicialPolice = v)),
         Row(
           children: [
             Expanded(
-              child: _buildField("اسم الضابطة العدلية", _policeNameCtrl, Icons.badge_rounded),
+              child: _buildField(
+                  "اسم الضابطة العدلية", _policeNameCtrl, Icons.badge_rounded),
             ),
             const SizedBox(width: 8),
             IconButton(
               onPressed: _showPoliceNoteDialog,
               icon: Icon(
-                _policeNoteCtrl.text.isNotEmpty ? Icons.note_alt_rounded : Icons.note_add_rounded,
-                color: _policeNoteCtrl.text.isNotEmpty ? Colors.green : primaryBlue,
+                _policeNoteCtrl.text.isNotEmpty
+                    ? Icons.note_alt_rounded
+                    : Icons.note_add_rounded,
+                color:
+                    _policeNoteCtrl.text.isNotEmpty ? Colors.green : primaryBlue,
               ),
               tooltip: 'إضافة أو تعديل ملاحظة',
             ),
           ],
         ),
-        _buildDropdown(
-            "شرطة *", Icons.local_police_rounded, ['--اختر--', 'يوجد', 'لا يوجد'], _policeExists, (v) => setState(() => _policeExists = v)),
-        _buildDropdown("عدد أفراد القوة الأمنية", Icons.people_alt_rounded,
-            policeCountOptions, _policeCount, _updatePoliceCount),
-
-        // Dynamic Police Officer Rows
-        if (_policeNames.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          const Text('تفاصيل أفراد القوة الأمنية:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'AdFont', color: primaryBlue)),
-          const SizedBox(height: 8),
-          ...List.generate(_policeNames.length, (index) {
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: bgGray,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _policeNames[index] ?? '--اختر--',
-                      decoration: const InputDecoration(
-                        labelText: 'اسم الشرطي',
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                      ),
-                      items: policeListOptions
-                          .map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 12))))
-                          .toList(),
-                      onChanged: (val) => setState(() => _policeNames[index] = val),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: _policeEvalCtrls[index],
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'التقييم (0-100)',
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-          const SizedBox(height: 8),
-        ],
-
         _buildDropdown("سبب التفتيش *", Icons.help_center_rounded,
-            ['--اختر--', 'عشوائي', 'موجه', 'بلاغ'], _inspectionReason, (v) => setState(() => _inspectionReason = v)),
-        _buildDropdown("مصدر التغذية *", Icons.electrical_services_rounded,
-            ['--اختر--', 'رسمي', 'عن طريق العبث', 'مفصول', 'من إشتراك مجاور'], _powerSource, (v) => setState(() => _powerSource = v)),
+            ['--اختر--', 'عشوائي', 'موجه', 'بلاغ'], _inspectionReason,
+            (v) => setState(() => _inspectionReason = v)),
+        _buildDropdown(
+            "مصدر التغذية *",
+            Icons.electrical_services_rounded,
+            ['--اختر--', 'رسمي', 'عن طريق العبث', 'مفصول', 'من إشتراك مجاور'],
+            _powerSource,
+            (v) => setState(() => _powerSource = v)),
         _buildField("اشتراك المغذي", _feederSubCtrl, Icons.link_rounded),
         _buildDropdown("ختم غطاء التوصيلات *", Icons.lock_outline_rounded,
-            ['--اختر--', 'يوجد', 'لا يوجد'], _connCoverSeal, (v) => setState(() => _connCoverSeal = v)),
+            ['--اختر--', 'يوجد', 'لا يوجد'], _connCoverSeal,
+            (v) => setState(() => _connCoverSeal = v)),
         _buildField("رمز ختم التوصيلات", _connSealNumCtrl,
             Icons.confirmation_num_outlined),
-        _buildDropdown(
-            "ختم اللوحة *", Icons.lock_person_rounded, ['--اختر--', 'يوجد', 'لا يوجد'], _boardSeal, (v) => setState(() => _boardSeal = v)),
+        _buildDropdown("ختم اللوحة *", Icons.lock_person_rounded,
+            ['--اختر--', 'يوجد', 'لا يوجد'], _boardSeal,
+            (v) => setState(() => _boardSeal = v)),
         _buildField("رمز ختم اللوحة", _boardSealNumCtrl,
             Icons.confirmation_num_outlined),
         _buildDropdown("إجراء مستقبلي *", Icons.next_plan_rounded,
-            ['--اختر--', 'يوجد', 'لا يوجد'], _futureAction, (v) => setState(() => _futureAction = v)),
+            ['--اختر--', 'يوجد', 'لا يوجد'], _futureAction,
+            (v) => setState(() => _futureAction = v)),
         _buildDropdown("دوام رسمي *", Icons.work_history_rounded,
-            ['--اختر--', 'داخل اوقات العمل الرسمي', 'خارج اوقات العمل الرسمي'], _workTime, (v) => setState(() => _workTime = v)),
-        _buildDropdown(
-            "نوع الشفت *", Icons.schedule_rounded, ['--اختر--', 'نهاري', 'مسائي'], _shiftType, (v) => setState(() => _shiftType = v)),
+            ['--اختر--', 'داخل اوقات العمل الرسمي', 'خارج اوقات العمل الرسمي'],
+            _workTime, (v) => setState(() => _workTime = v)),
+        _buildDropdown("نوع الشفت *", Icons.schedule_rounded,
+            ['--اختر--', 'نهاري', 'مسائي'], _shiftType,
+            (v) => setState(() => _shiftType = v)),
         _buildDropdown("حالة العداد", Icons.settings_input_component_rounded,
-            ['--اختر--', 'سليم', 'عاطل'], _meterStatus, (v) => setState(() => _meterStatus = v)),
+            ['--اختر--', 'سليم', 'عاطل'], _meterStatus,
+            (v) => setState(() => _meterStatus = v)),
         _buildDropdown("سيارة كهربائية", Icons.electric_car_rounded,
-            ['--اختر--', 'يوجد', 'لا يوجد', 'لا يمكن التحديد'], _electricCar, (v) => setState(() => _electricCar = v)),
-        _buildField(
-            "مساعد رئيس الورشة", _assistantCtrl, Icons.person_add_alt_rounded),
-        _buildField("السائق المرافق", _driverCtrl, Icons.drive_eta_rounded),
+            ['--اختر--', 'يوجد', 'لا يوجد', 'لا يمكن التحديد'], _electricCar,
+            (v) => setState(() => _electricCar = v)),
+        _buildField("اسم المساعد (مساعد رئيس الورشة)", _assistantCtrl,
+            Icons.person_add_alt_rounded),
+        _buildField("اسم السائق المرافق", _driverCtrl, Icons.drive_eta_rounded),
+        _buildField("التوقيع الفني", _signatureCtrl, Icons.draw_rounded),
       ],
     );
   }
@@ -505,24 +586,29 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
   }
 
   Widget _buildField(String label, TextEditingController ctrl, IconData icon,
-      {TextInputType type = TextInputType.text, bool isScanable = false}) {
+      {TextInputType type = TextInputType.text,
+      bool isScanable = false,
+      int maxLines = 1}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
       child: TextField(
         controller: ctrl,
         keyboardType: type,
+        maxLines: maxLines,
         style: const TextStyle(fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon, size: 18, color: primaryBlue),
           suffixIcon: isScanable
               ? IconButton(
-                  icon: const Icon(Icons.qr_code_scanner_rounded, color: primaryBlue, size: 20),
+                  icon: const Icon(Icons.qr_code_scanner_rounded,
+                      color: primaryBlue, size: 20),
                   tooltip: 'مسح الباركود بالكاميرا',
                   onPressed: () async {
                     final scanned = await Navigator.push<String>(
                       context,
-                      MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const BarcodeScannerScreen()),
                     );
                     if (scanned != null && scanned.isNotEmpty) {
                       setState(() => ctrl.text = scanned);
@@ -542,8 +628,10 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
     );
   }
 
-  Widget _buildDropdown(String label, IconData icon, List<String> items, String? value, ValueChanged<String?> onChanged) {
-    final currentValue = (value != null && items.contains(value)) ? value : items.first;
+  Widget _buildDropdown(String label, IconData icon, List<String> items,
+      String? value, ValueChanged<String?> onChanged) {
+    final currentValue =
+        (value != null && items.contains(value)) ? value : items.first;
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
       child: DropdownButtonFormField<String>(
@@ -556,10 +644,14 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
         items: items
             .map((e) => DropdownMenuItem(
-                value: e, child: Text(e, style: const TextStyle(fontSize: 13))))
+                value: e,
+                child: Text(e,
+                    style: const TextStyle(fontSize: 13, fontFamily: 'AdFont'))))
             .toList(),
         onChanged: onChanged,
       ),
@@ -567,99 +659,48 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
   }
 
   Widget _buildImagePicker(String label) {
-    File? img = _images[label];
-    final isMandatory = label.contains('اجباري');
-
+    File? imageFile = _images[label];
     return GestureDetector(
       onTap: () => _pickImage(label),
       child: Container(
-        height: 120,
         decoration: BoxDecoration(
-          color: img != null ? Colors.white : Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(16),
+          color: bgGray,
+          borderRadius: BorderRadius.circular(15),
           border: Border.all(
-            color: img != null ? primaryBlue : (isMandatory ? Colors.red.shade300 : Colors.grey.shade300),
-            width: img != null ? 2 : 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
+              color: imageFile != null ? primaryBlue : Colors.transparent,
+              width: 2),
+          image: imageFile != null
+              ? DecorationImage(image: FileImage(imageFile), fit: BoxFit.cover)
+              : null,
         ),
-        child: img == null
+        child: imageFile == null
             ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: (isMandatory ? Colors.red : primaryBlue).withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.add_a_photo_rounded,
-                      color: isMandatory ? Colors.red.shade700 : primaryBlue,
-                      size: 26,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
+                  Icon(Icons.add_a_photo_rounded,
+                      color: primaryBlue.withValues(alpha: 0.5), size: 30),
+                  const SizedBox(height: 5),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'AdFont',
-                        color: isMandatory ? Colors.red.shade700 : Colors.grey.shade700,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(label,
+                        style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'AdFont'),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
                   ),
                 ],
               )
-            : ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.file(img, fit: BoxFit.cover),
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                        color: Colors.black.withValues(alpha: 0.6),
-                        child: Text(
-                          label,
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontFamily: 'AdFont'),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 6,
-                      right: 6,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.check, color: Colors.white, size: 12),
-                      ),
-                    ),
-                  ],
+            : Container(
+                decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(15),
+                    color: Colors.black26),
+                child: const Center(
+                    child: Icon(Icons.check_circle,
+                        color: Colors.white, size: 30)),
                 ),
-              ),
       ),
     );
   }
@@ -667,27 +708,19 @@ class _InspectionMovementPageState extends State<InspectionMovementPage> {
   Widget _buildSaveButton() {
     return Container(
       width: double.infinity,
-      height: 55,
-      decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(15),
-          gradient: const LinearGradient(colors: [primaryBlue, darkBlue]),
-          boxShadow: [
-            BoxShadow(
-                color: primaryBlue.withValues(alpha: 0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 5))
-          ]),
+      height: 60,
       child: ElevatedButton(
-        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text("تم حفظ الحركة بنجاح", textAlign: TextAlign.center),
-                backgroundColor: Colors.green)),
+        onPressed: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("تم حفظ حركة التفتيش بنجاح")),
+          );
+        },
         style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.transparent,
-            shadowColor: Colors.transparent,
+            backgroundColor: darkBlue,
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15))),
-        child: const Text('حفـظ الحركـة',
+                borderRadius: BorderRadius.circular(15)),
+            shadowColor: Colors.transparent),
+        child: const Text("حفظ وإرسال المعاملة",
             style: TextStyle(
                 color: Colors.white,
                 fontSize: 18,

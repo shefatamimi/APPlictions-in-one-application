@@ -711,6 +711,7 @@ class _InquiryViewState extends State<_InquiryView> {
                   _simpleRow('رقم العداد', c.meterSerialNum),
                   _simpleRow('نوع العداد', c.isSmart ? 'ذكـي' : 'عادي'),
                   _simpleRow('الفاز', c.phase),
+                  _simpleRow('حمل الاشتراك (Load Profile)', c.loadProfile.isNotEmpty ? c.loadProfile : '---'),
                   _simpleRow('العنوان', c.address),
                   if (c.subscriptionType.isNotEmpty)
                     _simpleRow('نوع الاشتراك', c.subscriptionType),

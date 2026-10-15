@@ -180,11 +180,10 @@ class _InspectionInquiryViewState extends State<_InspectionInquiryView> {
         children: [
           TextField(
             controller: _pidCtrl,
-            keyboardType: TextInputType.number,
-            maxLength: 8,
+            keyboardType: TextInputType.text,
             decoration: InputDecoration(
-              labelText: 'رقم العملية (PID)',
-              hintText: 'أدخل رقم العملية فقط',
+              labelText: 'أرقام العمليات (PID)',
+              hintText: 'أدخل رقم أو أرقام العمليات (يمكن إدخال أكثر من عملية)',
               counterText: '',
               prefixIcon: const Icon(Icons.numbers, color: Color(0xFF0284C7)),
               suffixIcon: _pidCtrl.text.isNotEmpty
