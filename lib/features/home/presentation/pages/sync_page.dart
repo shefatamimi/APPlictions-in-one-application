@@ -36,8 +36,7 @@ class SyncPage extends StatelessWidget {
               label: 'جلب البيانات من قاعدة البيانات',
               icon: Icons.download_rounded,
               color: primaryBlue,
-              onTap: () =>
-                  _showProcess(context, 'جاري جلب البيانات من السيرفر...'),
+              onTap: () => _showDownloadWarning(context),
             ),
             const SizedBox(height: 24),
             _syncActionCard(
@@ -45,8 +44,7 @@ class SyncPage extends StatelessWidget {
               label: 'ارسال البيانات لقاعدة البيانات',
               icon: Icons.upload_rounded,
               color: Colors.green.shade600,
-              onTap: () =>
-                  _showProcess(context, 'جاري إرسال البيانات للسيرفر...'),
+              onTap: () => _handleUploadData(context),
             ),
             const Spacer(),
             const Text(
@@ -59,6 +57,93 @@ class SyncPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _showDownloadWarning(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تنويه',
+            textDirection: TextDirection.rtl,
+            style: TextStyle(fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
+        content: const Text(
+          'يرجى العلم بأن عملية جلب البيانات ستؤدي لفقدان جميع البيانات التي تم جلبها أو إدخالها مسبقا, حيث أنه من المفضل إجراء عملية إرسال البيانات في البداية. هل ترغب بالمتابعة و إجراء عملية جلب للبيانات ؟',
+          textDirection: TextDirection.rtl,
+          style: TextStyle(fontFamily: 'AdFont', fontSize: 13.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('لا', style: TextStyle(fontFamily: 'AdFont')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7)),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showProcess(context, 'جاري جلب البيانات من السيرفر...');
+            },
+            child: const Text('نعم',
+                style: TextStyle(fontFamily: 'AdFont', color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleUploadData(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('جاري إرسال البيانات للسيرفر...',
+                    style: TextStyle(fontFamily: 'AdFont')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!context.mounted) return;
+      Navigator.pop(context); // Dismiss loading
+
+      // Success Dialog matching Java buildi
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('نجاح',
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                  fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
+          content: const Text('تم الإرسال بنجاح',
+              textDirection: TextDirection.rtl,
+              style: TextStyle(fontFamily: 'AdFont')),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pop(context); // Return from sync page
+              },
+              child: const Text('حسناً',
+                  style: TextStyle(fontFamily: 'AdFont', color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   Widget _syncActionCard(BuildContext context,
@@ -135,8 +220,8 @@ class SyncPage extends StatelessWidget {
       if (!context.mounted) return;
       Navigator.pop(context);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('تمت العملية بنجاح')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تمت عملية جلب البيانات بنجاح')));
     });
   }
 }
