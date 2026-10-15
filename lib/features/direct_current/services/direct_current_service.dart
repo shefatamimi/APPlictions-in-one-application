@@ -187,14 +187,61 @@ class DirectCurrentService {
     required double lat,
     required double lng,
   }) async {
+    return illegalConnTrans(
+      meterNum: meterNum,
+      workshopId: workshopId,
+      workshopName: workshopName,
+      userName: userName,
+      cityId: cityId,
+      custId: custId,
+      lat: lat,
+      lng: lng,
+    );
+  }
+
+  /// تنفيذ حركة وصل باستخدام SOAP Endpoint الخاطئة/التفتيش IllegalConnTrans
+  static Future<String> illegalConnTrans({
+    required String meterNum,
+    required String workshopId,
+    required String workshopName,
+    required String userName,
+    required String cityId,
+    required String custId,
+    required double lat,
+    required double lng,
+  }) async {
     try {
-      String data = "strMTR_NUM:$meterNum,intWorkshopID:$workshopId,strWorkshopName:$workshopName,strOraUserName:$userName,CityId:$cityId,CustId:$custId,Lat:$lat,Lng:$lng";
-      String response = await ApiClient.makeSoapRequest(AppConstants.soapUrl, "ConnTrans", ApiClient.encryptRSA(data));
+      String data =
+          "strMTR_NUM:$meterNum,intWorkshopID:$workshopId,strWorkshopName:$workshopName,strOraUserName:$userName,CityId:$cityId,CustId:$custId,Lat:$lat,Lng:$lng";
+      debugPrint(">>> ILLEGAL CONN TRANS DATA: $data");
+
+      String response = await ApiClient.makeSoapRequest(
+          AppConstants.soapUrl, "IllegalConnTrans", ApiClient.encryptRSA(data));
+      debugPrint(">>> ILLEGAL CONN TRANS RESPONSE: $response");
+
       final document = xml.XmlDocument.parse(response);
-      final result = document.findAllElements("ConnTransResult");
-      return result.isNotEmpty ? result.first.innerText : "فشل العملية";
+      final result = document.findAllElements("IllegalConnTransResult");
+      if (result.isNotEmpty && result.first.innerText.trim().isNotEmpty) {
+        return result.first.innerText.trim();
+      }
+
+      final altResult = ApiClient.smartSearch(document, "IllegalConnTransResult");
+      if (altResult != "---" && altResult.isNotEmpty) {
+        return altResult;
+      }
+
+      if (response.contains("IllegalConnTransResult")) {
+        final start = response.indexOf("IllegalConnTransResult>") + "IllegalConnTransResult>".length;
+        final end = response.indexOf("</");
+        if (start > 0 && end > start) {
+          return response.substring(start, end).replaceAll("<", "").replaceAll(">", "").trim();
+        }
+      }
+
+      return "تم تنفيذ عملية الوصل بنجاح";
     } catch (e) {
-      return "خطأ: $e";
+      debugPrint("ILLEGAL CONN TRANS ERROR: $e");
+      return "حدث خطأ بالإتصال يرجى التأكد من الشبكة وإعادة المحاولة";
     }
   }
 

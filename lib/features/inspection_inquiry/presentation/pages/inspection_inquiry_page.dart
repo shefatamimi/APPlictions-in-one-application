@@ -13,7 +13,6 @@ import '../../domain/entities/engineer_entity.dart';
 import '../../domain/entities/operation_entity.dart';
 import '../cubit/inspection_inquiry_cubit.dart';
 import '../cubit/inspection_inquiry_state.dart';
-import 'package:ideco_platform/core/widgets/barcode_scanner_screen.dart';
 
 class InspectionInquiryPage extends StatelessWidget {
   const InspectionInquiryPage({super.key});
@@ -429,24 +428,9 @@ class _InspectionInquiryViewState extends State<_InspectionInquiryView> {
 
           TextField(
             controller: _stampCtrl,
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               labelText: 'رقم الختم',
-              prefixIcon: const Icon(Icons.confirmation_number),
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.qr_code_scanner_rounded,
-                    color: AppColors.primary),
-                tooltip: 'مسح الباركود بالكاميرا',
-                onPressed: () async {
-                  final scanned = await Navigator.push<String>(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const BarcodeScannerScreen()),
-                  );
-                  if (scanned != null && scanned.isNotEmpty) {
-                    setState(() => _stampCtrl.text = scanned);
-                  }
-                },
-              ),
+              prefixIcon: Icon(Icons.confirmation_number),
             ),
           ),
 

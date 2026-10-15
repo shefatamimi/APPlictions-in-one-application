@@ -13,6 +13,9 @@ import 'package:ideco_platform/features/inquiry/domain/entities/customer_info_en
 import 'package:ideco_platform/features/inquiry/presentation/cubit/inquiry_cubit.dart';
 import 'package:ideco_platform/features/inquiry/presentation/cubit/inquiry_state.dart';
 import 'package:ideco_platform/core/widgets/barcode_scanner_screen.dart';
+import 'package:ideco_platform/platform/presentation/cubit/platform_auth_cubit.dart';
+import 'package:ideco_platform/platform/presentation/cubit/platform_auth_state.dart';
+import 'package:ideco_platform/features/direct_current/services/direct_current_service.dart';
 
 enum InquiryMode {
   normal,
@@ -907,13 +910,8 @@ class _InquiryViewState extends State<_InquiryView> {
                   Navigator.of(ctx)
                       .pushNamed('/inspection-movement', arguments: customer);
                 }),
-                _gridActionBtn('معاملة التفتيش', Icons.assignment_rounded,
+                _gridActionBtn('إدخال معاملة التفتيش', Icons.assignment_rounded,
                     isEnabled, const Color(0xFF0369A1), () {
-                  Navigator.of(ctx)
-                      .pushNamed('/inspection-movement', arguments: customer);
-                }),
-                _gridActionBtn('حركة وصل', Icons.link,
-                    isEnabled, const Color(0xFF059669), () {
                   Navigator.of(ctx)
                       .pushNamed('/inspection-movement', arguments: customer);
                 }),
@@ -924,7 +922,7 @@ class _InquiryViewState extends State<_InquiryView> {
                 }),
                 _gridActionBtn('إدخال تقرير تنفيذ', Icons.assignment_turned_in_rounded,
                     isEnabled, const Color(0xFF7C3AED), () {
-                  Navigator.of(ctx).pushNamed('/inspection-inquiry');
+                  _showSimpleSnack(ctx, 'قيد التطوير', const Color(0xFF7C3AED));
                 }),
               ],
             ),
@@ -958,8 +956,7 @@ class _InquiryViewState extends State<_InquiryView> {
               children: [
                 Expanded(
                     child: _actionBtn('حركة وصل', Icons.link, isEnabled, () {
-                  Navigator.of(ctx)
-                      .pushNamed('/inspection-movement', arguments: customer);
+                  _handleConnectionTransaction(ctx, customer);
                 })),
                 const SizedBox(width: 12),
                 Expanded(
@@ -974,6 +971,99 @@ class _InquiryViewState extends State<_InquiryView> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleConnectionTransaction(
+      BuildContext ctx, CustomerInfoEntity? customer) async {
+    // 1. فحص وجود رقم المستخدم و الورشة
+    final authState = ctx.read<PlatformAuthCubit>().state;
+    if (authState is! PlatformAuthAuthenticated) {
+      _showSimpleSnack(ctx, 'يرجى تسجيل الدخول أولاً', Colors.red);
+      return;
+    }
+    final employee = authState.session.employee;
+
+    if (employee.oracleUser.trim().isEmpty || employee.oracleUser.trim() == '0') {
+      _showSimpleSnack(ctx, 'لا يوجد رقم مستخدم لغايات الفصل و الوصل', Colors.orange);
+      return;
+    }
+
+    if (employee.workshopNumber.trim().isEmpty) {
+      _showSimpleSnack(ctx, 'لا يوجد رقم ورشة', Colors.orange);
+      return;
+    }
+
+    if (customer == null || customer.meterSerialNum.trim().isEmpty) {
+      _showSimpleSnack(ctx, 'يرجى الإستعلام عن عداد أولاً', Colors.orange);
+      return;
+    }
+
+    // 2. إظهار مؤشر الانتظار
+    showDialog(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('يرجى الإنتظار...', style: TextStyle(fontFamily: 'AdFont')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final lat = double.tryParse(customer.posX ?? '0') ?? 0.0;
+      final lng = double.tryParse(customer.posY ?? '0') ?? 0.0;
+
+      final workshopId = employee.systemMinor.isNotEmpty
+          ? employee.systemMinor
+          : employee.workshopNumber;
+      final workshopName = employee.workshopName.isNotEmpty
+          ? employee.workshopName
+          : employee.displayName;
+
+      final responseMessage = await DirectCurrentService.connTrans(
+        meterNum: customer.meterSerialNum,
+        workshopId: workshopId,
+        workshopName: workshopName,
+        userName: employee.oracleUser,
+        cityId: customer.cityCode,
+        custId: customer.subscriptionSerial,
+        lat: lat,
+        lng: lng,
+      );
+
+      if (ctx.mounted) {
+        Navigator.of(ctx).pop(); // إغلاق نافذة الإنتظار
+
+        showDialog(
+          context: ctx,
+          builder: (_) => AlertDialog(
+            title: const Text('نتيجة حركة الوصل', style: TextStyle(fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
+            content: Text(responseMessage, style: const TextStyle(fontFamily: 'AdFont')),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('حسناً', style: TextStyle(fontFamily: 'AdFont')),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (ctx.mounted) {
+        Navigator.of(ctx).pop(); // إغلاق نافذة الإنتظار
+        _showSimpleSnack(ctx, 'حدث خطأ بالإتصال يرجى التأكد من الشبكة وإعادة المحاولة', Colors.red);
+      }
+    }
   }
 
   Widget _gridActionBtn(String label, IconData icon, bool isEnabled,
