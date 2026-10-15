@@ -287,38 +287,49 @@ class _SubmissionCardState extends State<_SubmissionCard> {
           _detailRow('العنوان', s.address),
           _detailRow('هاتف المشترك', s.mobile),
           const SizedBox(height: 16),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 2.8,
+          Column(
             children: [
-              _gridBtn('ادخال حركه التفتيش', Icons.engineering_rounded,
-                  const Color(0xFF0284C7), () {
-                Navigator.of(ctx)
-                    .pushNamed('/inspection-movement', arguments: s);
-              }),
-              _gridBtn('انشاء معاملة تفتيش', Icons.assignment_rounded,
-                  const Color(0xFF0369A1), () {
-                Navigator.of(ctx)
-                    .pushNamed('/inspection-movement', arguments: s);
-              }),
-              _gridBtn(
-                  'ادخال حركة فصل و وصل',
-                  Icons.electrical_services_rounded,
-                  const Color(0xFF00897B), () {
-                Navigator.of(ctx).pushNamed('/inquiry',
-                    arguments: InquiryPageArgs(
-                        mode: InquiryMode.connectionMovements,
-                        initialMeterNum: s.meterNum));
-              }),
-              _gridBtn('انشاء زيارة تفتيش', Icons.visibility_rounded,
-                  const Color(0xFF0EA5E9), () {
-                Navigator.of(ctx)
-                    .pushNamed('/inspection-movement', arguments: s);
-              }),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: _gridBtn('انشاء معاملة تفتيش', Icons.assignment_rounded,
+                          const Color(0xFF0369A1), () {
+                        Navigator.of(ctx)
+                            .pushNamed('/inspection-movement', arguments: s);
+                      }),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: _gridBtn(
+                          'ادخال حركة فصل و وصل',
+                          Icons.electrical_services_rounded,
+                          const Color(0xFF00897B), () {
+                        Navigator.of(ctx).pushNamed('/inquiry',
+                            arguments: InquiryPageArgs(
+                                mode: InquiryMode.connectionMovements,
+                                initialMeterNum: s.meterNum));
+                      }),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Center(
+                child: SizedBox(
+                  width: MediaQuery.of(ctx).size.width * 0.55,
+                  height: 44,
+                  child: _gridBtn('انشاء زيارة تفتيش', Icons.visibility_rounded,
+                      const Color(0xFF0EA5E9), () {
+                    Navigator.of(ctx)
+                        .pushNamed('/inspection-movement', arguments: s);
+                  }),
+                ),
+              ),
             ],
           ),
         ],

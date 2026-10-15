@@ -1,8 +1,12 @@
-import 'package:flutter/material.dart';
-
+import 'dart:convert';
 import 'dart:io';
-
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:ideco_platform/features/inquiry/domain/entities/customer_info_entity.dart';
+import 'package:ideco_platform/features/meter/services/meter_service.dart';
+import 'package:ideco_platform/platform/presentation/cubit/platform_auth_cubit.dart';
+import 'package:ideco_platform/platform/presentation/cubit/platform_auth_state.dart';
 
 class MeterRemovalScreen extends StatefulWidget {
   const MeterRemovalScreen({super.key});
@@ -15,6 +19,9 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
   final Color primarySkyBlue = const Color(0xFF38BDF8);
   final Color backgroundGray = const Color(0xFFF1F5F9);
   final ImagePicker _picker = ImagePicker();
+
+  CustomerInfoEntity? _customer;
+  bool _isFetchingProcess = false;
 
   // ممسكات النصوص الأساسية
   final TextEditingController _dateController = TextEditingController();
@@ -67,7 +74,42 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
         "${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}";
   }
 
-  // دالة التقاط الصور مع معالجة الأخطاء لضمان فتح الكاميرا
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_customer == null) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is CustomerInfoEntity) {
+        _customer = args;
+        _fetchRemovingProcess(_customer!.meterSerialNum);
+      }
+    }
+  }
+
+  Future<void> _fetchRemovingProcess(String meterNum) async {
+    setState(() => _isFetchingProcess = true);
+    try {
+      final pid = await MeterService.getRemovingCounterProcess(meterNum);
+      if (!mounted) return;
+      setState(() => _isFetchingProcess = false);
+
+      if (pid.isNotEmpty) {
+        _processNumController.text = pid;
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  "لم يتم العثور على معاملة خلع تلقائية، يرجى إدخال رقم المعاملة يدوياً"),
+              backgroundColor: Colors.orange),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isFetchingProcess = false);
+      }
+    }
+  }
+
   Future<void> _pickImage(String label) async {
     try {
       final XFile? photo = await _picker.pickImage(
@@ -88,6 +130,128 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
           SnackBar(
               content: Text("عذراً، فشل فتح الكاميرا: $e"),
               backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleSave() async {
+    final authState = context.read<PlatformAuthCubit>().state;
+    final employee = authState is PlatformAuthAuthenticated
+        ? authState.session.employee
+        : null;
+    final empName = employee?.fullName.isNotEmpty == true
+        ? employee!.fullName
+        : (employee?.username ?? 'فني');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('جاري حفظ وإرسال معاملة الخلع...',
+                    style: TextStyle(fontFamily: 'AdFont')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final cityCode = _customer?.cityCode ?? '';
+      final mtrSerial = _customer?.meterSerialNum ?? '';
+      final subSerial = _customer?.subscriptionSerial ?? '';
+
+      // 1. Gather data parts (22 parts)
+      final data = ":$empName;"
+          ":${_dateController.text};"
+          ":$cityCode;"
+          ":$mtrSerial;"
+          ":$subSerial;"
+          ":${_processNumController.text};"
+          ":${_importNormalController.text.trim()};"
+          ":${_importPeakController.text.trim()};"
+          ":${_importOffPeakController.text.trim()};"
+          ":${_importPartial1Controller.text.trim()};"
+          ":${_exportNormalController.text.trim()};"
+          ":${_exportPeakController.text.trim()};"
+          ":${_exportOffPeakController.text.trim()};"
+          ":${_exportPartial1Controller.text.trim()};"
+          ":${_checklist["ختم غطاء التوصيل"] == true ? "1" : "0"};"
+          ":${_checklist["علبة التوزيع"] == true ? "1" : "0"};"
+          ":${_checklist["الكيبل"] == true ? "1" : "0"};"
+          ":${_checklist["خزانة العدادات"] == true ? "1" : "0"};"
+          ":${_checklist["اللوحة"] == true ? "1" : "0"};"
+          ":${_checklist["العداد"] == true ? "1" : "0"};"
+          ":${_checklist["أختام العداد العلوية"] == true ? "1" : "0"};"
+          ":${_notesController.text.trim()}";
+
+      final data2 = "";
+
+      // 2. Images (encoded1 to encoded8)
+      List<String> encodedImages = [];
+      final imageKeys = _images.keys.toList();
+      for (int i = 0; i < 8; i++) {
+        if (i < imageKeys.length && _images[imageKeys[i]] != null) {
+          final bytes = await _images[imageKeys[i]]!.readAsBytes();
+          encodedImages.add(base64Encode(bytes));
+        } else {
+          encodedImages.add("");
+        }
+      }
+
+      final timeFlag = _customer?.hasTimeOfUse == true ? "1" : "0";
+      final renFlag = _customer?.isRenewable == true ? "1" : "0";
+
+      final result = await MeterService.insertRemoveCounterData(
+        data: data,
+        data2: data2,
+        encoded1: encodedImages[0],
+        encoded2: encodedImages[1],
+        encoded3: encodedImages[2],
+        encoded4: encodedImages[3],
+        encoded5: encodedImages[4],
+        encoded6: encodedImages[5],
+        encoded7: encodedImages[6],
+        encoded8: encodedImages[7],
+        timeFlag: timeFlag,
+        renFlag: renFlag,
+      );
+
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading dialog
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('نتيجة خلع العداد',
+                style: TextStyle(
+                    fontFamily: 'AdFont', fontWeight: FontWeight.bold)),
+            content: Text(result, style: const TextStyle(fontFamily: 'AdFont')),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                },
+                child: const Text('حسناً', style: TextStyle(fontFamily: 'AdFont')),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("خطأ: $e"), backgroundColor: Colors.red),
         );
       }
     }
@@ -119,10 +283,21 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
                         _buildTextField(
                             "اسم الفني المختص", Icons.person_outline_rounded,
                             controller: _techNameController),
-                        _buildTextField("رقم المعاملة / العملية",
+                        _buildTextField(
+                            "رقم المعاملة / العملية",
                             Icons.confirmation_num_outlined,
                             controller: _processNumController,
-                            type: TextInputType.number),
+                            type: TextInputType.number,
+                            suffixIcon: _isFetchingProcess
+                                ? const Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2)),
+                                  )
+                                : null),
                       ],
                     ),
                     _buildModernCard(
@@ -324,7 +499,8 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
       {required TextEditingController controller,
       TextInputType type = TextInputType.text,
       bool readOnly = false,
-      int maxLines = 1}) {
+      int maxLines = 1,
+      Widget? suffixIcon}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(
@@ -344,6 +520,7 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
             style: const TextStyle(fontSize: 14),
             decoration: InputDecoration(
               prefixIcon: Icon(icon, color: primarySkyBlue, size: 20),
+              suffixIcon: suffixIcon,
               filled: true,
               fillColor: backgroundGray.withValues(alpha: 0.5),
               border: OutlineInputBorder(
@@ -441,11 +618,7 @@ class _MeterRemovalScreenState extends State<MeterRemovalScreen> {
         ],
       ),
       child: ElevatedButton.icon(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text("تم حفظ المعاملة بنجاح"),
-              backgroundColor: Colors.green));
-        },
+        onPressed: _handleSave,
         icon: const Icon(Icons.save_rounded, color: Colors.white),
         label: const Text("حفظ وإرسال المعاملة",
             style: TextStyle(

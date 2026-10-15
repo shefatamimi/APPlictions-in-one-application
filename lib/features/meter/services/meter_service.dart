@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:xml/xml.dart' as xml;
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:ideco_platform/core/api_client.dart';
 import 'package:ideco_platform/core/constants/app_constants.dart';
 import 'package:ideco_platform/features/meter/models/meter_event_item.dart';
@@ -453,6 +455,95 @@ class MeterService {
       );
     } catch (e) {
       debugPrint("LOG SMART METER EVENT ERROR: $e");
+    }
+  }
+
+  /// 1. جلب رقم المعاملة للعداد (DataType:79)
+  static Future<String> getRemovingCounterProcess(String meterNum) async {
+    try {
+      String data2 = "sOracleWhere: and ora.MTR_M_NUM='$meterNum';sSQLWhere: ;strModels:;strModels2:;strTask:;DataType:79";
+      String response = await ApiClient.makeSoapRequest(
+        AppConstants.soapUrl,
+        "GetExecutionProcessTranasction",
+        ApiClient.encryptRSA(data2),
+      ).timeout(const Duration(seconds: 25));
+
+      final document = xml.XmlDocument.parse(response);
+      String mainPid = ApiClient.smartSearch(document, "MAIN_PID");
+      return mainPid != "---" ? mainPid : "";
+    } catch (e) {
+      debugPrint("GET REMOVING COUNTER PROCESS ERROR: $e");
+      return "";
+    }
+  }
+
+  /// 2. إرسال بيانات خلع العداد والمواد والصور للسيرفر
+  static Future<String> insertRemoveCounterData({
+    required String data,
+    required String data2,
+    required String encoded1,
+    required String encoded2,
+    required String encoded3,
+    required String encoded4,
+    required String encoded5,
+    required String encoded6,
+    required String encoded7,
+    required String encoded8,
+    required String timeFlag,
+    required String renFlag,
+  }) async {
+    try {
+      final encData = ApiClient.encryptRSA(data);
+      final encData2 = ApiClient.encryptRSA(data2);
+
+      String soapEnvelope = '''
+<v:Envelope xmlns:v="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
+   <v:Header/><v:Body>
+      <tem:insertRemoveCounterData>
+         <tem:data>$encData</tem:data>
+         <tem:data2>$encData2</tem:data2>
+         <tem:encoded1>$encoded1</tem:encoded1>
+         <tem:encoded2>$encoded2</tem:encoded2>
+         <tem:encoded3>$encoded3</tem:encoded3>
+         <tem:encoded4>$encoded4</tem:encoded4>
+         <tem:encoded5>$encoded5</tem:encoded5>
+         <tem:encoded6>$encoded6</tem:encoded6>
+         <tem:encoded7>$encoded7</tem:encoded7>
+         <tem:encoded8>$encoded8</tem:encoded8>
+         <tem:timeFlag>$timeFlag</tem:timeFlag>
+         <tem:renFlag>$renFlag</tem:renFlag>
+      </tem:insertRemoveCounterData>
+   </v:Body>
+</v:Envelope>''';
+
+      debugPrint(">>> INSERT REMOVE COUNTER DATA REQUEST");
+
+      final response = await http.post(
+        Uri.parse(AppConstants.soapUrl),
+        headers: {
+          "Content-Type": "text/xml; charset=utf-8",
+          "SOAPAction": "http://tempuri.org/IBillingWcfsrv/insertRemoveCounterData"
+        },
+        body: utf8.encode(soapEnvelope),
+      ).timeout(const Duration(seconds: 45));
+
+      final document = xml.XmlDocument.parse(response.body);
+      final result = document.descendants
+          .whereType<xml.XmlElement>()
+          .where((e) => e.name.local.toLowerCase() == "insertremovecounterdataresult")
+          .firstOrNull;
+
+      if (result != null && result.innerText.trim().isNotEmpty) {
+        return result.innerText.trim();
+      }
+
+      final alt = ApiClient.smartSearch(document, "insertRemoveCounterDataResult");
+      if (alt != "---" && alt.isNotEmpty) return alt;
+
+      return "تم حفظ معاملة الخلع بنجاح";
+    } catch (e) {
+      debugPrint("INSERT REMOVE COUNTER ERROR: $e");
+      return "خطأ في الاتصال: $e";
     }
   }
 }
